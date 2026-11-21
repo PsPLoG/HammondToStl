@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Brush, Evaluator, ADDITION, SUBTRACTION } from 'three-bvh-csg';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { zipSync } from 'fflate';
+import { strToU8 } from 'fflate';
 import { partWorld } from './layout.js';
 import { COMPACT_SCREW, getFastenerLayout, getCornerWebs } from './fasteners.js';
 
@@ -311,3 +312,48 @@ export const FASTENER_SPEC = {
   screwClearance: COMPACT_SCREW.clearance,
   postRadius: COMPACT_SCREW.postRadius,
 };
+
+function meshXml(mesh, id, mat) {
+  const g = mesh.geometry, p = g.attributes.position, idx = g.index;
+  const count = idx ? idx.count : p.count, vertices = [], triangles = [], indices = [], unique = new Map();
+  for (let i=0; i<count; i++) {
+    const n = idx ? idx.getX(i) : i;
+    const xyz = [p.getX(n), -p.getZ(n), p.getY(n)];
+    const key = xyz.map(v=>v.toFixed(5)).join(',');
+    let index = unique.get(key);
+    if (index === undefined) {
+      index = vertices.length;
+      unique.set(key,index);
+      vertices.push('<vertex x="'+xyz[0]+'" y="'+xyz[1]+'" z="'+xyz[2]+'"/>');
+    }
+    indices.push(index);
+  }
+  for (let i=0; i+2<indices.length; i+=3) {
+    const [a,b,c] = indices.slice(i,i+3);
+    if(a!==b&&b!==c&&a!==c) triangles.push('<triangle v1="'+a+'" v2="'+b+'" v3="'+c+'"/>');
+  }
+  return '<object id="'+id+'" type="model" pid="1" pindex="'+mat+'"><mesh><vertices>'+vertices.join('')+'</vertices><triangles>'+triangles.join('')+'</triangles></mesh></object>';
+}
+
+export function export3MF(shell, lid, prefix, lidThickness) {
+  const body = trimForSTL(shell), plate = trimForSTL(lid);
+  try {
+    // Keep the actual assembly coordinates in the 3MF, unlike separate STL
+    // files which are arranged independently for printing.
+    const model = '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<model unit="millimeter" xml:lang="ko-KR" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">' +
+      '<metadata name="Title">PEDALFORM enclosure assembly</metadata><resources>' +
+      '<basematerials id="1"><base name="Enclosure" displaycolor="#8CA4A5FF"/><base name="Bottom lid" displaycolor="#6B888BFF"/></basematerials>' +
+      meshXml(body,2,0)+meshXml(plate,3,1) +
+      '</resources><build><item objectid="2"/><item objectid="3"/></build></model>';
+    const files = {
+      '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'),
+      '_rels/.rels': strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="/3D/3dmodel.model"/></Relationships>'),
+      '3D/3dmodel.model': strToU8(model),
+    };
+    const archive = zipSync(files,{level:6});
+    downloadBlob(new Blob([archive],{type:'model/3mf'}),prefix+'_Bambu_Studio.3mf');
+  } finally {
+    body.geometry.dispose();plate.geometry.dispose();
+  }
+}

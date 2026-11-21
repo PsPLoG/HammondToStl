@@ -13,7 +13,7 @@ import {
   mm, round1, clamp, faceSize, safePosition, moveWithSnap, layoutIssues,
   issueForPart, edgeDistances, nearestNeighbor, distribute, findOpenSpot, partWorld, assemblyIssues,
 } from './layout.js';
-import { buildShell, buildLid, modelToSTL, downloadBlob, FASTENER_SPEC, makeCornerWebGeometry } from './geometry.js';
+import { buildShell, buildLid, modelToSTL, export3MF, downloadBlob, FASTENER_SPEC, makeCornerWebGeometry } from './geometry.js';
 import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fasteners.js';
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
@@ -716,6 +716,20 @@ export default function App() {
       }
     }, 50);
   };
+  const exportBambu = () => {
+    if(issues.length){notify('간섭 오류를 먼저 해결해 주세요.','error');return;}
+    setBusy(true);
+    window.setTimeout(()=>{
+      let shell=null,lid=null;
+      try {
+        shell=buildShell(preset,settings,parts);
+        lid=buildLid(preset,settings);
+        export3MF(shell,lid,'pedalform_'+settings.enclosure,settings.lidThickness);
+        notify('Bambu Studio용 3MF를 다운로드했습니다. 색상은 Studio에서 지정하세요.','success');
+      }catch(e){notify('3MF 오류: '+e.message,'error');}
+      finally{shell?.geometry.dispose();lid?.geometry.dispose();setBusy(false);}
+    },50);
+  };
   const currentParts = parts.filter(p => p.face === activeFace);
   useEffect(() => {
     const onKey = e => {
@@ -757,6 +771,7 @@ export default function App() {
         <button className="top-btn subtle" onClick={reset} title="초기화"><RotateCcw size={16} /> <span>초기화</span></button>
         <button className="top-btn subtle" onClick={() => fileRef.current?.click()} title="프로젝트 불러오기"><Upload size={16} /> <span>불러오기</span></button>
         <button className="top-btn subtle" onClick={saveJson} title="프로젝트 저장"><Save size={16} /> <span>설계 저장</span></button>
+        <button className="top-btn subtle" disabled={busy || issues.length > 0} onClick={exportBambu} title="Bambu Studio용 3MF 내보내기"><FileDown size={16}/> 3MF 다운로드</button>
         <button className="top-btn primary" disabled={busy || issues.length > 0} onClick={exportAll} title={issues.length ? '간섭 오류 해결 후 사용 가능' : 'STL ZIP 내보내기'}>
           <Download size={17} /> {busy ? '생성 중...' : 'STL 다운로드'}
         </button>
