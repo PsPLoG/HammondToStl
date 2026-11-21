@@ -170,3 +170,12 @@ tests/
 상단 **3MF 다운로드** 버튼으로 Bambu Studio에서 열 수 있는 표준 3MF Core 파일을 직접 생성합니다. 케이스 본체와 하판은 별도 3D 오브젝트이며, 각 오브젝트에는 다른 색상 힌트가 있습니다. Bambu Studio에서 두 오브젝트를 불러온 후 AMS 필라멘트 색상을 직접 지정하고 출력 방향을 정하세요. Bambu 전용 프린터 프로파일과 AMS 슬롯 배정은 포함하지 않습니다.
 
 이미지 업로드 및 로고 음각/양각, 로고 분리 멀티컬러 파트 기능은 **아직 미구현**입니다. 현재 3MF는 케이스와 하판만 포함합니다.
+
+
+### Public CAD reference models and collision warnings
+- The 5 mm LED preview uses the **actual indexed mesh** converted from KiCad's `LED_D5.0mm.wrl` (not a box/cylinder placeholder), bundled at `public/cad/kicad/` and converted to `src/cad/kicadLed5mm.json`.
+- Original author: **Jan Krieger** (see `public/cad/kicad/CREDITS.md`). License: **CC-BY-SA 4.0 with KiCad library exception** (see `public/cad/kicad/LICENSE.md`). Original: https://github.com/KiCad/kicad-packages3D/blob/master/LED_THT.3dshapes/LED_D5.0mm.wrl .
+- KiCad VRML units are converted to millimetres using **2.54 mm per VRML unit**. The LED is oriented to the case panel along the local mounting axis.
+- Potentiometer, 3PDT switch, audio jack, toggle and DC jack are **reference approximations**, **not** sourced, product-specific certified CAD. Do not rely on those meshes for manufacturing clearances without verifying exact component numbers and manufacturer dimensions.
+- The 3D model icon toggles hardware visibility. PCB/hardware bounding-box intersection warnings are **conservative preflight warnings**, not exact solid-on-solid CAD interference analysis.
+- KiCad's `Connector_BarrelJack` CAD is a **PCB-mount** jack, not a substitute for the default **panel-mount** pedal jack; it is intentionally not mislabeled as such.
