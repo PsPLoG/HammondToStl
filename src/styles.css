@@ -496,3 +496,10 @@ button { -webkit-tap-highlight-color: transparent; }
 /* v0.4.2 - visibly inspect webbed corner reinforcement */
 .preview-actions button[aria-pressed="true"] { background: #d6f7c9; border-color: #80c67c; color: #257e36; }
 .preview-bottom span:last-child { color: #397e4c; font-weight: 800; }
+
+/* Personal CAD reference import controls */
+.cad-select { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid #cad8d6; border-radius: 8px; color: #244145; background: white; margin: 7px 0; font-size: 12px; }
+.cad-upload { display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin: 8px 0; border: 1px dashed #8ba4a0; border-radius: 8px; color: #254f4b; background: #f4f9f6; cursor: pointer; font-size: 12px; font-weight: 700; }
+.cad-upload input { display: none; }
+.cad-upload:focus-within { outline: 2px solid #65b7ab; }
+.cad-upload:has(input:disabled) { opacity: .5; cursor: wait; }
