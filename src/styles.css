@@ -317,3 +317,23 @@ button { -webkit-tap-highlight-color: transparent; }
 .fastener-footprint > circle { fill:#b7a080; fill-opacity:.16; stroke:#ad916a; stroke-width:.35; stroke-dasharray:1.1 .8; }
 .fastener-footprint > .fastener-bore { fill:none; stroke-width:.28; stroke-dasharray:.8 .7; }
 .fastener-legend { color:#a28b6a; }
+
+/* v0.3: PCB enclosure-fitting workflow and quick knob layouts */
+.knob-presets { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:7px; }
+.knob-presets button { padding:11px 5px; border:1px solid #cfddd6; background:#f3fbf6; border-radius:8px; font-weight:800; font-size:17px; color:#2a7860; display:flex; align-items:baseline; justify-content:center; gap:4px; }
+.knob-presets button:hover { background:#dff3e8; border-color:#64ad8b; }
+.knob-presets small { font-size:10px; font-weight:600; }
+.add-board { display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #8dbfae; border-radius:9px; padding:11px 9px; width:100%; background:#e7f6ec; color:#2c7158; font-size:12px; font-weight:750; }
+.add-board:hover { background:#d5efdf; }
+.pcb-list { display:grid; gap:6px; margin-top:10px; }
+.pcb-list-item { display:flex; align-items:center; border:1px solid #d7e5dd; border-radius:8px; background:white; overflow:hidden; }
+.pcb-list-item.active { border-color:#5ca880; background:#eef8f0; }
+.pcb-list-item > button:first-child { display:flex; align-items:center; gap:9px; flex:1; min-width:0; padding:9px; border:0; text-align:left; background:transparent; color:#28684c; }
+.pcb-list-item span { display:flex; flex-direction:column; gap:3px; }
+.pcb-list-item b { font-size:12px; }
+.pcb-list-item small { font-size:10px; color:#839a8e; }
+.pcb-list-item .pcb-remove { background:transparent; color:#b15d60; border:0; padding:11px; }
+.pcb-footprint { cursor:grab; touch-action:none; }
+.pcb-footprint:active { cursor:grabbing; }
+.pcb-legend { color:#388762; }
+.pcb-inspector-icon { display:grid; place-items:center; flex-shrink:0; width:48px; height:48px; background:#ddf5e8; color:#218a5c; border-radius:11px; }
