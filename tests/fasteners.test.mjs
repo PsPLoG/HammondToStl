@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ENCLOSURES, DEFAULT_SETTINGS } from '../src/presets.js';
-import { COMPACT_SCREW, getFastenerLayout, outlineClearance, interiorCompliance } from '../src/fasteners.js';
+import { COMPACT_SCREW, getFastenerLayout, getCornerWebs, outlineClearance, interiorCompliance } from '../src/fasteners.js';
 import { assemblyIssues } from '../src/layout.js';
 
 const screw = { ...DEFAULT_SETTINGS, closure: 'screw' };
@@ -57,4 +57,43 @@ test('125B profile is explicitly approximate and not falsely certified', () => {
   const fit = interiorCompliance(ENCLOSURES['125B'], screw);
   assert.equal(fit.measured, false);
   assert.equal(fit.passes, true);
+});
+
+
+test('full-height corner pillars reach the roof and bottom plane', () => {
+  for (const preset of Object.values(ENCLOSURES)) {
+    for (const closure of ['screw', 'magnet']) {
+      const settings = { ...screw, closure };
+      const m = getFastenerLayout(preset, settings);
+      close(m.bossHeight, preset.h - settings.wall + 0.45);
+      assert.ok(m.bossHeight > preset.h * 0.7);
+    }
+  }
+});
+
+test('corner webs bridge each boss to the adjacent walls without protruding', () => {
+  for (const preset of Object.values(ENCLOSURES)) {
+    for (const wall of [2, 2.4, 5]) {
+      for (const closure of ['screw', 'magnet']) {
+        const settings = { ...screw, wall, closure };
+        const m = getFastenerLayout(preset, settings);
+        const webs = getCornerWebs(preset, settings);
+        assert.equal(webs.length, 4);
+        webs.forEach((web, i) => {
+          const [x,z] = m.centers[i];
+          assert.ok(web.width > 0 && web.length > 0);
+          assert.equal(Math.sign(web.x), Math.sign(x));
+          assert.equal(Math.sign(web.z), Math.sign(z));
+          const farX = Math.abs(web.x) + web.width / 2;
+          const farZ = Math.abs(web.z) + web.length / 2;
+          close(farX, preset.w / 2 - wall - 0.35);
+          close(farZ, preset.l / 2 - wall - 0.35);
+          assert.ok(outlineClearance(preset, farX, farZ) >= -0.01,
+            preset.code + ' reinforcement extends outside rounded enclosure');
+          assert.ok(Math.abs(web.x) - web.width / 2 < Math.abs(x),
+            'reinforcement must overlap its round boss');
+        });
+      }
+    }
+  }
 });

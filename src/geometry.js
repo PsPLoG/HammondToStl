@@ -3,7 +3,7 @@ import { Brush, Evaluator, ADDITION, SUBTRACTION } from 'three-bvh-csg';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { zipSync } from 'fflate';
 import { partWorld } from './layout.js';
-import { COMPACT_SCREW, getFastenerLayout } from './fasteners.js';
+import { COMPACT_SCREW, getFastenerLayout, getCornerWebs } from './fasteners.js';
 
 
 function roundedRectangle(w, l, radius) {
@@ -83,8 +83,12 @@ export function buildShell(preset, settings, parts = []) {
   const posts = mounting.centers;
   const isScrew = settings.closure === 'screw';
   const height = mounting.bossHeight;
+  // Solid corner webs eliminate unsupported gaps between columns and both walls.
+  // Their height reaches the inner roof as well as the bottom opening (Y=0).
+  for (const web of getCornerWebs(preset, settings)) {
+    shell.apply(new THREE.BoxGeometry(web.width, height, web.length), ADDITION, [web.x, height / 2, web.z]);
+  }
   for (const [x, z] of posts) {
-    // Compact columns overlap the corner walls but stay inside the outside shell.
     shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
   }
   for (const [x, z] of posts) {

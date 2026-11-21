@@ -42,8 +42,9 @@ export function getFastenerLayout(preset, settings) {
   const x = preset.w / 2 - insetX;
   const z = preset.l / 2 - insetZ;
   const centers = [[-x, -z], [x, -z], [-x, z], [x, z]];
-  const bossHeight = screw ? (preset.screwBossHeight ?? 10.0) :
-    Math.max(6, settings.magnetDepth + 2.2);
+  // Connect every boss to the inside of the roof, all the way down to the lid plane.
+  // A small roof overlap ensures a continuous printable union, never a suspended boss.
+  const bossHeight = preset.h - settings.wall + 0.45;
   return {
     centers, radius, insetX, insetZ, bossHeight,
     outerSkin: outlineClearance(preset, x, z) - radius,
@@ -62,4 +63,27 @@ export function interiorCompliance(preset, settings) {
   if (!ref) return { measured: false, passes: true };
   const passes = insideWidth >= ref.width - 0.01 && insideLength >= ref.length - 0.01;
   return { measured: true, passes, targetWidth: ref.width, targetLength: ref.length };
+}
+
+
+// Fill the entire inward-facing corner quadrant between each round boss and
+// its two neighbouring walls. The web sits INSIDE the exterior rounded profile.
+// End inset prevents a protruding square corner; roof-to-lid extrusion joins
+// all three surfaces into one printable shell instead of isolated cylinders.
+export function getCornerWebs(preset, settings) {
+  const mounting = getFastenerLayout(preset, settings);
+  const endX = preset.w / 2 - settings.wall - 0.35;
+  const endZ = preset.l / 2 - settings.wall - 0.35;
+  return mounting.centers.map(([x, z]) => {
+    const startX = Math.abs(x) - mounting.radius * 0.55;
+    const startZ = Math.abs(z) - mounting.radius * 0.55;
+    const width = endX - startX;
+    const length = endZ - startZ;
+    if (width <= 0 || length <= 0) throw new Error('Corner reinforcement cannot fit this enclosure');
+    return {
+      x: Math.sign(x) * (startX + endX) / 2,
+      z: Math.sign(z) * (startZ + endZ) / 2,
+      width, length,
+    };
+  });
 }
