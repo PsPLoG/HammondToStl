@@ -1,65 +1,102 @@
 import * as THREE from 'three';
 import { partWorld } from './layout.js';
 
-// Local reference models. Dimensions are approximate except where noted.
-// Axis +Y is outward from the panel; interior is negative Y.
+// Reference envelopes, NOT manufacturer-certified CAD. Coordinates in mm.
+// Local +Y points outside the panel; panel outside is local Y=0.
 export const PART_BODIES = {
-  potentiometer: { width: 17, length: 17, depth: 10.7, label: 'Alpha RV16-type approximation' },
-  audioJack: { width: 20.1, length: 15.2, depth: 22.3, label: 'Cliff CL1227G-type approximation' },
-  led: { width: 5.8, length: 5.8, depth: 8, label: '5mm LED approximation' },
-  footswitch: { width: 19.6, length: 17, depth: 16.7, label: 'Alpha 3PDT housing' },
-  toggle: { width: 13, length: 8, depth: 12, label: 'mini toggle approximation' },
-  dcJack: { width: 15, length: 14, depth: 18, label: 'panel DC jack approximation' },
+  potentiometer: { width: 17, length: 17, depth: 11.5, label: 'Alpha RV16AF reference, Ø16.5 body' },
+  audioJack: { width: 20.1, length: 15.2, depth: 22.3, label: 'Cliff CL1227G reference envelope' },
+  led: { width: 6, length: 6, depth: 9, label: '5mm panel LED reference' },
+  footswitch: { width: 19.6, length: 17, depth: 17, label: '3PDT nine-terminal reference' },
+  toggle: { width: 13, length: 8, depth: 12, label: 'mini toggle reference' },
+  dcJack: { width: 15, length: 14, depth: 18, label: '5.5x2.1 panel DC jack reference' },
 };
-const materials = {
-  metal: new THREE.MeshStandardMaterial({color:'#c5ced2',metalness:0.78,roughness:0.28}),
-  plastic: new THREE.MeshStandardMaterial({color:'#242c32',metalness:0.04,roughness:0.68}),
-  led: new THREE.MeshStandardMaterial({color:'#ed4c4c',emissive:'#7b1616',roughness:0.2}),
-};
-function box(group,w,h,d,y,mat) {
-  const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
-  mesh.position.y=y;group.add(mesh);
+const metal = new THREE.MeshStandardMaterial({ color: '#bfc5c8', metalness: 0.7, roughness: 0.3 });
+const plastic = new THREE.MeshStandardMaterial({ color: '#252a2d', roughness: 0.72 });
+const board = new THREE.MeshStandardMaterial({ color: '#8c6850', roughness: 0.8 });
+const lens = new THREE.MeshStandardMaterial({ color: '#e94b42', emissive: '#691b1a' });
+function cube(root, w, h, d, x, y, z, material = plastic) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
+  mesh.position.set(x, y, z); root.add(mesh);
 }
-function cylinder(group,r,h,y,mat) {
-  const mesh=new THREE.Mesh(new THREE.CylinderGeometry(r,r,h,24),mat);
-  mesh.position.y=y;group.add(mesh);
+function round(root, radius, height, x, y, z, material = metal, segments = 32) {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, segments), material);
+  mesh.position.set(x, y, z); root.add(mesh);
 }
-export function makePartReference(part,preset,wall) {
-  const spec=PART_BODIES[part.type];
-  if(!spec)return null;
-  const group=new THREE.Group();
-  // Panel outside is at local Y=0, positive is exposed.
-  box(group,spec.width,spec.depth,spec.length,-spec.depth/2-0.5,materials.plastic);
-  cylinder(group,Math.min(part.hole/2-0.25,5.8),wall+3,(1.5-wall)/2,materials.metal);
-  cylinder(group,Math.max(3.2,part.hole/2+1),1.1,0.6,materials.metal);
-  if(part.type==='footswitch')cylinder(group,5,5,4,materials.metal);
-  if(part.type==='potentiometer')cylinder(group,3,11,6,materials.metal);
-  if(part.type==='toggle')cylinder(group,2,10,5.5,materials.metal);
-  if(part.type==='led')cylinder(group,2.5,3,2.5,materials.led);
-  const placement=partWorld(part,preset,wall,wall/2);
-  group.position.set(...placement.position);
-  // partWorld rotates cylindrical cutter from Y to face normal.
-  group.rotation.set(...placement.rotation);
-  if(part.face==='back')group.rotation.x=-Math.PI/2;
-  if(part.face==='left')group.rotation.z=-Math.PI/2;
-  return group;
-}
-export function partBoardCollisions(parts,boards,preset,wall) {
-  const hits=[];
-  for(const part of parts){
-    const spec=PART_BODIES[part.type];if(!spec)continue;
-    const object=makePartReference(part,preset,wall);
-    const center=new THREE.Vector3(0,-spec.depth/2-0.5,0).applyMatrix4((object.updateMatrixWorld(true),object.matrixWorld));
-    // Conservative oriented-box AABB, used for warnings only.
-    const half=new THREE.Vector3(spec.width/2,spec.depth/2,spec.length/2);
-    const bounds=new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(0,-spec.depth/2-0.5,0),half.clone().multiplyScalar(2)).applyMatrix4(object.matrixWorld);
-    for(const board of boards){
-      const pcb=new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(board.x,board.bottomY+board.thickness/2,board.z),
-        new THREE.Vector3(board.width,board.thickness,board.length));
-      if(bounds.intersectsBox(pcb))hits.push({id:part.id,error:part.id+' ('+spec.label+') 와 '+board.name+' 간섭 가능성: 부품 외형을 확인하세요.'});
+function hex(root, radius, height, y) { round(root, radius, height, 0, y, 0, metal, 6); }
+function buildLocal(part, wall) {
+  const root = new THREE.Group();
+  const type = part.type;
+  const depth = PART_BODIES[type]?.depth || 10;
+  if (type === 'potentiometer') {
+    // Alpha RV16AF: round Ø16.5 metal can, three solder tabs, M7 bushing, Ø6 shaft.
+    round(root, 8.25, 9.1, 0, -wall - 4.55, 0, metal, 48);
+    round(root, 3.5, wall + 5, 0, -wall / 2 + 2.5, 0);
+    round(root, 3, 11, 0, 7.5, 0);
+    hex(root, 5.3, 1.6, 0.9);
+    for (const x of [-5, 0, 5]) cube(root, 1.6, 6, 0.8, x, -wall - 11.8, 6.8, metal);
+  } else if (type === 'footswitch') {
+    cube(root, 19.6, 16.5, 17, 0, -wall - 8.25, 0);
+    cube(root, 19.6, 2, 17, 0, -wall - 1.1, 0, metal);
+    round(root, 5.7, wall + 6, 0, 3 - wall / 2, 0);
+    hex(root, 8.5, 1.8, 0.9);
+    round(root, 4.5, 6, 0, 6, 0);
+    // Nine solder lugs on the bottom, arranged 3x3.
+    for (const x of [-5, 0, 5]) for (const z of [-5, 0, 5]) {
+      cube(root, 1.6, 6, 0.9, x, -wall - 19.2, z, metal);
     }
-    object.traverse(child=>{if(child.isMesh)child.geometry.dispose()});
+  } else if (type === 'audioJack') {
+    cube(root, 20.1, 15.2, 15.2, 0, -wall - 7.6, 0);
+    round(root, 5.55, wall + 4, 0, 2 - wall / 2, 0);
+    hex(root, 7.2, 1.7, 1.0);
+    // Contact terminals protrude from the inside.
+    for (const x of [-6, 0, 6]) cube(root, 1.3, 7, 1.8, x, -wall - 18.5, 4, metal);
+  } else if (type === 'led') {
+    round(root, 2.5, 8, 0, -wall - 2, 0, lens);
+    round(root, 3, 1, 0, 0.6, 0, metal);
+    for (const x of [-1.25, 1.25]) cube(root, 0.6, 10, 0.6, x, -wall - 10, 0, metal);
+  } else if (type === 'toggle') {
+    cube(root, 13, 12, 8, 0, -wall - 6, 0);
+    round(root, 3, wall + 4, 0, 2 - wall / 2, 0);
+    hex(root, 5, 1.4, 0.8);
+    round(root, 1.8, 10, 0, 7, 0);
+    for (const x of [-4, 0, 4]) cube(root, 1.2, 5, 0.8, x, -wall - 14.5, 0, metal);
+  } else if (type === 'dcJack') {
+    cube(root, 15, 14, 14, 0, -wall - 7, 0);
+    round(root, 5.5, wall + 3, 0, 1.5 - wall / 2, 0);
+    hex(root, 7, 1.6, 0.8);
+    for (const x of [-4, 0, 4]) cube(root, 1.2, 6, 1, x, -wall - 17, 2, metal);
+  } else {
+    cube(root, 12, depth, 12, 0, -wall - depth / 2, 0, board);
+  }
+  return root;
+}
+export function makePartReference(part, preset, wall) {
+  if (!PART_BODIES[part.type]) return null;
+  const root = buildLocal(part, wall);
+  const transform = partWorld(part, preset, wall, wall / 2);
+  root.position.set(...transform.position);
+  root.rotation.set(...transform.rotation);
+  if (part.face === 'back') root.rotation.x = -Math.PI / 2;
+  if (part.face === 'left') root.rotation.z = -Math.PI / 2;
+  return root;
+}
+export function partBoardCollisions(parts, boards, preset, wall) {
+  const hits = [];
+  for (const part of parts) {
+    const object = makePartReference(part, preset, wall);
+    if (!object) continue;
+    object.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    for (const pcb of boards) {
+      const boardBounds = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(pcb.x, pcb.bottomY + pcb.thickness / 2, pcb.z),
+        new THREE.Vector3(pcb.width, pcb.thickness, pcb.length));
+      if (bounds.intersectsBox(boardBounds)) hits.push({
+        id: part.id, error: part.id + ' / ' + pcb.name + ': 참고 외형 간섭 가능성 (실측 확인 필요)',
+      });
+    }
+    object.traverse(node => { if (node.isMesh) node.geometry.dispose(); });
   }
   return hits;
 }
