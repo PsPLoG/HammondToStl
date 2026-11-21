@@ -37,8 +37,9 @@ export function movePCB(board, x, z, preset, settings) {
   const maxZ = Math.max(0, preset.l / 2 - settings.wall - PCB_GAP - board.length / 2);
   return {
     ...board,
-    x: Math.round(min(x, -maxX, maxX) * 10) / 10,
-    z: Math.round(min(z, -maxZ, maxZ) * 10) / 10,
+    // Round inward; nearest-tenth rounding can push an edge past the wall by 0.05mm.
+    x: Math.trunc(min(x, -maxX, maxX) * 10) / 10,
+    z: Math.trunc(min(z, -maxZ, maxZ) * 10) / 10,
   };
 }
 
