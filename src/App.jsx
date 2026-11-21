@@ -18,7 +18,7 @@ import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fastener
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
 import { makePartReference, partBoardCollisions } from './partModels.js';
-import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, disposeCadGroup } from './externalCad.js';
+import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, checkImportedCadBoards } from './externalCad.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -592,7 +592,10 @@ export default function App() {
   const fileRef = useRef(null);
   const preset = getPreset(settings.enclosure);
   const pcbIssues = useMemo(() => checkPCBLayout(boards, preset, settings, getFastenerLayout(preset, settings)), [boards, preset, settings]);
-  const referenceCollisions = useMemo(() => partBoardCollisions(parts, boards, preset, settings.wall), [parts, boards, preset, settings.wall]);
+  const referenceCollisions = useMemo(() => [
+    ...partBoardCollisions(parts.filter(part => !cadAssets[part.id]), boards, preset, settings.wall),
+    ...checkImportedCadBoards(parts, boards, preset, settings.wall, cadAssets),
+  ], [parts, boards, preset, settings.wall, cadAssets]);
   const issues = useMemo(() => [...layoutIssues(parts, settings), ...assemblyIssues(settings), ...pcbIssues, ...referenceCollisions], [parts, settings, pcbIssues, referenceCollisions]);
   const selected = parts.find(p => p.id === selectedId) ?? null;
   const selectedBoard = boards.find(b => b.id === selectedBoardId) ?? null;
