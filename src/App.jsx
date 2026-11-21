@@ -327,14 +327,46 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
   </div>;
 }
 
-function Sidebar({ settings, setSettings, face, onAdd, parts, boards, selectedBoardId, onSelectBoard, onAddBoard, onRemoveBoard, onPreset }) {
+function TopMenu({ settings, setSettings, face, onAdd, boards, selectedBoardId, onSelectBoard, onAddBoard, onRemoveBoard, onPreset }) {
+  const [open, setOpen] = useState(null);
+  const menuRef = useRef(null);
   const preset = getPreset(settings.enclosure);
   const mounts = getFastenerLayout(preset, settings);
   const specFit = interiorCompliance(preset, settings);
-  const set = (patch) => setSettings(s => ({ ...s, ...patch }));
-  return <aside className="sidebar">
-    <div className="aside-scroll">
-      <div className="aside-head"><span className="section-eyebrow">01 / ENCLOSURE</span><h2>케이스 설정</h2></div>
+  useEffect(() => {
+    const closeOutside = event => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setOpen(null);
+    };
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setOpen(null);
+    };
+    document.addEventListener('pointerdown', closeOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+  const set = patch => {
+    setSettings(settings => ({ ...settings, ...patch }));
+    if (patch.enclosure || patch.closure === 'screw') setOpen(null);
+  };
+  const addAndClose = type => { onAdd(type); setOpen(null); };
+  const presetAndClose = count => { onPreset(count); setOpen(null); };
+  const selectBoardAndClose = id => { onSelectBoard(id); setOpen(null); };
+  return <nav className="top-navigation" ref={menuRef} aria-label="케이스 설계 도구">
+    <div className="top-nav-track">
+      <div className="top-menu-slot">
+        <button type="button" className={'top-menu-trigger ' + (open === 'case' ? 'active' : '')}
+          onClick={() => setOpen(current => current === 'case' ? null : 'case')}
+          aria-expanded={open === 'case'} aria-controls="menu-case">
+          <Box size={16} className="top-menu-icon" />
+          <span className="top-menu-label">케이스</span>
+          <span className="top-menu-note">{settings.enclosure}</span>
+          <ChevronDown size={14} className="top-menu-chevron" />
+        </button>
+        {open === 'case' && <div className="top-menu-panel" id="menu-case" role="region" aria-label="케이스 설정">
+<div className="aside-head"><span className="section-eyebrow">01 / ENCLOSURE</span><h2>케이스 설정</h2></div>
       <div className="case-options">
         {Object.values(ENCLOSURES).map(p => <button className={`case-option ${settings.enclosure === p.code ? 'chosen' : ''}`} key={p.code} onClick={() => set({ enclosure: p.code })}>
           <span className="case-thumb"><span style={{ width: `${30 + p.w / 8}px`, height: `${24 + p.l / 15}px` }} /></span>
@@ -350,8 +382,19 @@ function Sidebar({ settings, setSettings, face, onAdd, parts, boards, selectedBo
         <div><span>{settings.closure === 'screw' ? '나사 기둥' : '자석 기둥'}</span><b>Ø {(mounts.radius * 2).toFixed(1)} mm · 외벽 {(mounts.outerSkin).toFixed(1)} mm+</b></div>
         {specFit.measured && <p>{specFit.passes ? '✓ ' : '⚠ '}하몬드 도면의 중앙 내경 {specFit.targetWidth} × {specFit.targetLength} mm {specFit.passes ? '확보' : '미달'} (평면 치수만 비교)</p>}
       </div>
-      <div className="aside-divider" />
-      <div className="aside-head"><span className="section-eyebrow">02 / FASTENING</span><h2>하판 결합 방식</h2></div>
+        </div>}
+      </div>
+      <div className="top-menu-slot">
+        <button type="button" className={'top-menu-trigger ' + (open === 'closure' ? 'active' : '')}
+          onClick={() => setOpen(current => current === 'closure' ? null : 'closure')}
+          aria-expanded={open === 'closure'} aria-controls="menu-closure">
+          <Magnet size={16} className="top-menu-icon" />
+          <span className="top-menu-label">체결 방식</span>
+          <span className="top-menu-note">{settings.closure === 'screw' ? 'M3 나사' : '자석'}</span>
+          <ChevronDown size={14} className="top-menu-chevron" />
+        </button>
+        {open === 'closure' && <div className="top-menu-panel" id="menu-closure" role="region" aria-label="하판 체결 방식">
+<div className="aside-head"><span className="section-eyebrow">02 / FASTENING</span><h2>하판 결합 방식</h2></div>
       <div className="closure-options">
         <button onClick={() => set({ closure: 'screw' })} className={`closure-option ${settings.closure === 'screw' ? 'chosen' : ''}`}>
           <span className="closure-icon">✳</span><span><b>슬림 M3 나사</b><small>Ø6mm 기둥 · 벽/상판 일체형 보강</small></span><span className="radio-dot" />
@@ -365,35 +408,70 @@ function Sidebar({ settings, setSettings, face, onAdd, parts, boards, selectedBo
         <NumberField label="자석 두께" value={settings.magnetDepth} min={1} max={2.6} onCommit={n => set({ magnetDepth: n })} />
         <NumberField label="포켓 여유" value={settings.magnetTolerance} min={0} max={.8} onCommit={n => set({ magnetTolerance: n })} />
       </div>}
-      <div className="aside-divider" />
-      <div className="aside-head"><span className="section-eyebrow">03 / COMPONENTS</span><h2>부품 라이브러리</h2><p>선택한 면에 부품을 추가하세요.</p></div>
+        </div>}
+      </div>
+      <div className="top-menu-slot">
+        <button type="button" className={'top-menu-trigger ' + (open === 'components' ? 'active' : '')}
+          onClick={() => setOpen(current => current === 'components' ? null : 'components')}
+          aria-expanded={open === 'components'} aria-controls="menu-components">
+          <Plus size={16} className="top-menu-icon" />
+          <span className="top-menu-label">부품 추가</span>
+          <span className="top-menu-note">{FACE_LABELS[face]}</span>
+          <ChevronDown size={14} className="top-menu-chevron" />
+        </button>
+        {open === 'components' && <div className="top-menu-panel" id="menu-components" role="region" aria-label="부품 라이브러리">
+<div className="aside-head"><span className="section-eyebrow">03 / COMPONENTS</span><h2>부품 라이브러리</h2><p>선택한 면에 부품을 추가하세요.</p></div>
       <div className="component-palette">
-        {Object.entries(COMPONENTS).map(([type, m]) => <button key={type} className="palette-item" onClick={() => onAdd(type)} title={`${m.hint} · 홀 Ø${m.hole} mm`}>
+        {Object.entries(COMPONENTS).map(([type, m]) => <button key={type} className="palette-item" onClick={() => addAndClose(type)} title={`${m.hint} · 홀 Ø${m.hole} mm`}>
           <span className="palette-symbol" style={{ '--color': m.color }}>{m.glyph}</span>
           <span className="palette-name"><b>{m.label}</b><small>Ø {m.hole.toFixed(1)} mm</small></span>
           <Plus size={16} className="palette-plus" />
         </button>)}
       </div>
       <div className="palette-hint"><Info size={14} /> 기본 홀 지름은 예시입니다. 실부품 데이터시트에 맞게 변경하세요.</div>
-      <div className="aside-divider" />
-      <div className="aside-head"><span className="section-eyebrow">04 / PRESETS</span><h2>노브 프리셋</h2>
+        </div>}
+      </div>
+      <div className="top-menu-slot align-right">
+        <button type="button" className={'top-menu-trigger ' + (open === 'presets' ? 'active' : '')}
+          onClick={() => setOpen(current => current === 'presets' ? null : 'presets')}
+          aria-expanded={open === 'presets'} aria-controls="menu-presets">
+          <WandSparkles size={16} className="top-menu-icon" />
+          <span className="top-menu-label">노브 프리셋</span>
+          <span className="top-menu-note">1–6</span>
+          <ChevronDown size={14} className="top-menu-chevron" />
+        </button>
+        {open === 'presets' && <div className="top-menu-panel" id="menu-presets" role="region" aria-label="노브 프리셋">
+<div className="aside-head"><span className="section-eyebrow">04 / PRESETS</span><h2>노브 프리셋</h2>
         <p>상판 포텐셔미터만 교체하며 LED·잭·풋스위치는 유지합니다.</p></div>
       <div className="knob-presets">
-        {[1,2,3,4,5,6].map(count => <button key={count} onClick={() => onPreset(count)} title={count + '노브 자동 배치'}>{count}<small>노브</small></button>)}
+        {[1,2,3,4,5,6].map(count => <button key={count} onClick={() => presetAndClose(count)} title={count + '노브 자동 배치'}>{count}<small>노브</small></button>)}
       </div>
-      <div className="aside-divider" />
-      <div className="aside-head"><span className="section-eyebrow">05 / PCB</span><h2>기판 배치</h2>
+        </div>}
+      </div>
+      <div className="top-menu-slot align-right">
+        <button type="button" className={'top-menu-trigger ' + (open === 'pcb' ? 'active' : '')}
+          onClick={() => setOpen(current => current === 'pcb' ? null : 'pcb')}
+          aria-expanded={open === 'pcb'} aria-controls="menu-pcb">
+          <Layers3 size={16} className="top-menu-icon" />
+          <span className="top-menu-label">PCB</span>
+          <span className="top-menu-note">{boards.length + '장'}</span>
+          <ChevronDown size={14} className="top-menu-chevron" />
+        </button>
+        {open === 'pcb' && <div className="top-menu-panel" id="menu-pcb" role="region" aria-label="PCB 배치">
+<div className="aside-head"><span className="section-eyebrow">05 / PCB</span><h2>기판 배치</h2>
         <p>내부에 가상 PCB를 넣어 공간과 간섭을 확인하세요.</p></div>
       <button className="add-board" onClick={onAddBoard}><Plus size={16} /> PCB 추가</button>
       {boards.length > 0 && <div className="pcb-list">{boards.map(board =>
         <div key={board.id} className={'pcb-list-item ' + (selectedBoardId === board.id ? 'active' : '')}>
-          <button onClick={() => onSelectBoard(board.id)}><Layers3 size={16} />
+          <button onClick={() => selectBoardAndClose(board.id)}><Layers3 size={16} />
             <span><b>{board.name}</b><small>{board.width.toFixed(1)} × {board.length.toFixed(1)} mm</small></span></button>
           <button className="pcb-remove" onClick={() => onRemoveBoard(board.id)} title="PCB 삭제"><Trash2 size={14} /></button>
         </div>)}</div>}
       <div className="palette-hint"><Info size={14} /> PCB는 공간 검토용 모형입니다. 실제 PCB 고정 스탠드오프·부품 돌출 높이는 포함하지 않습니다.</div>
+        </div>}
+      </div>
     </div>
-  </aside>;
+  </nav>;
 }
 
 function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount }) {
@@ -649,6 +727,7 @@ export default function App() {
 
   return <div className="app-shell">
     <header className="topbar">
+      <div className="topbar-main">
       <div className="brand"><div className="brand-logo"><Box size={21} strokeWidth={2.2} /></div><div className="brand-word">PEDAL<span>FORM</span><small>ENCLOSURE STUDIO</small></div></div>
       <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">BETA</span></div>
       <div className="header-actions">
@@ -660,10 +739,13 @@ export default function App() {
           <Download size={17} /> {busy ? '생성 중...' : 'STL 다운로드'}
         </button>
       </div>
+      </div>
+      <TopMenu settings={settings} setSettings={setSettings} face={activeFace} onAdd={addPart}
+        boards={boards} selectedBoardId={selectedBoardId} onSelectBoard={selectBoard}
+        onAddBoard={addBoard} onRemoveBoard={removeBoard} onPreset={setKnobPreset} />
     </header>
 
     <div className="app-layout">
-      <Sidebar settings={settings} setSettings={setSettings} face={activeFace} onAdd={addPart} parts={parts} boards={boards} selectedBoardId={selectedBoardId} onSelectBoard={selectBoard} onAddBoard={addBoard} onRemoveBoard={removeBoard} onPreset={setKnobPreset} />
       <main className="workbench">
         <div className="workbench-title"><div><div className="section-eyebrow">WORKSPACE / DESIGNER</div><h1>이펙터 케이스 설계<span className="heading-mark">.</span></h1><p>부품·PCB 배치, 노브 프리셋, 홀 가공, STL까지 한 화면에서.</p></div><div className="workbench-stat"><span><Layers3 size={15} /> 5 SURFACES</span><b>{parts.length.toString().padStart(2, '0')} <small>COMPONENTS</small></b></div></div>
         <div className="design-panels">
@@ -696,6 +778,6 @@ export default function App() {
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
         <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length} />}
     </div>
-    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.3 / PCB + WEBBED POSTS</span></footer>
+    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4 / TOP NAVIGATION</span></footer>
   </div>;
 }
