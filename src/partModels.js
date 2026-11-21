@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { partWorld } from './layout.js';
+import ledCad from './cad/kicadLed5mm.json';
 
 // Reference envelopes, NOT manufacturer-certified CAD. Coordinates in mm.
 // Local +Y points outside the panel; panel outside is local Y=0.
@@ -24,6 +25,33 @@ function round(root, radius, height, x, y, z, material = metal, segments = 32) {
   mesh.position.set(x, y, z); root.add(mesh);
 }
 function hex(root, radius, height, y) { round(root, radius, height, 0, y, 0, metal, 6); }
+// Indexed meshes converted from KiCad's original CC-BY-SA 4.0 VRML asset.
+// VRML coordinates use 0.1-inch units; orientation is Z along the LED axis.
+function makeCadLed(wall) {
+  const group = new THREE.Group();
+  for (const item of ledCad.meshes) {
+    const geometry = new THREE.BufferGeometry();
+    const source = item.positions;
+    const points = new Float32Array(source.length);
+    for (let i = 0; i < source.length; i += 3) {
+      points[i] = source[i] * ledCad.unitScale;
+      points[i + 1] = (source[i + 2] - 2.5) * ledCad.unitScale;
+      points[i + 2] = source[i + 1] * ledCad.unitScale;
+    }
+    geometry.setAttribute('position', new THREE.BufferAttribute(points, 3));
+    // The Y/Z axis swap flips winding; invert each triangle to preserve outward normals.
+    const indices = item.indices.slice();
+    for (let i = 0; i < indices.length; i += 3) {
+      const temp = indices[i + 1]; indices[i + 1] = indices[i + 2]; indices[i + 2] = temp;
+    }
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.48, side: THREE.DoubleSide });
+    group.add(new THREE.Mesh(geometry, material));
+  }
+  return group;
+}
+
 function buildLocal(part, wall) {
   const root = new THREE.Group();
   const type = part.type;
@@ -73,7 +101,7 @@ function buildLocal(part, wall) {
 }
 export function makePartReference(part, preset, wall) {
   if (!PART_BODIES[part.type]) return null;
-  const root = buildLocal(part, wall);
+  const root = part.type === 'led' ? makeCadLed(wall) : buildLocal(part, wall);
   const transform = partWorld(part, preset, wall, wall / 2);
   root.position.set(...transform.position);
   root.rotation.set(...transform.rotation);
