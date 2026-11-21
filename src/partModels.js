@@ -47,6 +47,7 @@ function makeCadLed(wall) {
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({ color: item.color, roughness: 0.48, side: THREE.DoubleSide });
+    material.userData.referenceAsset = true;
     group.add(new THREE.Mesh(geometry, material));
   }
   return group;
@@ -106,7 +107,7 @@ export function makePartReference(part, preset, wall) {
   root.position.set(...transform.position);
   root.rotation.set(...transform.rotation);
   if (part.face === 'back') root.rotation.x = -Math.PI / 2;
-  if (part.face === 'left') root.rotation.z = -Math.PI / 2;
+  // partWorld already orients left/right panel normals correctly.
   return root;
 }
 export function partBoardCollisions(parts, boards, preset, wall) {
@@ -124,7 +125,7 @@ export function partBoardCollisions(parts, boards, preset, wall) {
         id: part.id, error: part.id + ' / ' + pcb.name + ': 참고 외형 간섭 가능성 (실측 확인 필요)',
       });
     }
-    object.traverse(node => { if (node.isMesh) node.geometry.dispose(); });
+    object.traverse(node => { if (node.isMesh) { node.geometry.dispose(); if(node.material?.userData?.referenceAsset) node.material.dispose(); } });
   }
   return hits;
 }
