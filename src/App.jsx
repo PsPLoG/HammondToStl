@@ -510,7 +510,7 @@ function TopMenu({ settings, setSettings, face, onAdd, boards, selectedBoardId, 
   </nav>;
 }
 
-function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, cadLoading }) {
+function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, onAdjustCad, cadLoading }) {
   const d = selected ? edgeDistances(selected, settings) : null;
   const next = selected ? nearestNeighbor(selected, parts) : null;
   const issue = selected ? issueForPart(selected, parts, settings) : null;
@@ -535,7 +535,7 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         </select>
         <label className="cad-upload"><Upload size={14} /> CAD 파일 직접 가져오기 <input type="file" accept=".step,.stp,.iges,.igs,.brep,.stl,.obj,.glb" disabled={!!cadLoading[selected.id]} onChange={event => { const file = event.target.files?.[0]; if (file) onLocalCad(selected, file); event.target.value = ''; }} /></label>
         {cadLoading[selected.id] && <p className="micro-help">3D CAD 변환 중…</p>}
-        {cadAssets[selected.id] && <><p className="micro-help">선택: {cadAssets[selected.id].label}</p><p className="micro-help">외형: {cadAssets[selected.id].dimensions.map(n => n.toFixed(1)).join(' × ')} mm · 원본 좌표 기준</p><p className="micro-help">장착 방향은 STEP 좌표계에 따라 수동 확인이 필요합니다.</p><button type="button" onClick={() => onRemoveCad(selected.id)}>CAD 모델 연결 해제</button></>}
+        {cadAssets[selected.id] && <><p className="micro-help">선택: {cadAssets[selected.id].label}</p><p className="micro-help">외형: {cadAssets[selected.id].dimensions.map(n => n.toFixed(1)).join(' × ')} mm · 원본 좌표 기준</p><p className="micro-help">원본 CAD 좌표축 기준으로 장착 축과 패널 밖 돌출량을 조정하세요.</p><select className="cad-select" value={cadAssets[selected.id].axis} onChange={event => onAdjustCad(selected.id, { axis: event.target.value })}>{['+x','-x','+y','-y','+z','-z'].map(axis => <option key={axis} value={axis}>패널 바깥 방향: {axis}</option>)}</select><div className="two-fields"><NumberField label="바깥 돌출 mm" value={cadAssets[selected.id].outside} min={-60} max={60} onCommit={outside => onAdjustCad(selected.id,{outside})} /><NumberField label="가로 보정 mm" value={cadAssets[selected.id].offsetX} min={-60} max={60} onCommit={offsetX => onAdjustCad(selected.id,{offsetX})} /><NumberField label="세로 보정 mm" value={cadAssets[selected.id].offsetZ} min={-60} max={60} onCommit={offsetZ => onAdjustCad(selected.id,{offsetZ})} /></div><button type="button" onClick={() => onRemoveCad(selected.id)}>CAD 모델 연결 해제</button></>}
       </div>
       <div className="inspector-section"><h4><Ruler size={15} /> 벽과의 거리 <span>EDGE CLEARANCE</span></h4>
         <div className="clearance-map"><div className="cleared top-gap">{d.top.toFixed(1)}</div><div className="h-clear"><span className="cleared">{d.left.toFixed(1)}</span><span className="center-indicator">Ø {selected.keepout.toFixed(1)}</span><span className="cleared">{d.right.toFixed(1)}</span></div><div className="cleared bottom-gap">{d.bottom.toFixed(1)}</div></div>
@@ -616,6 +616,7 @@ export default function App() {
     finally { setCadLoading(previous => ({...previous, [part.id]: false})); }
   };
   const onRemoveCad = id => setCadAssets(previous => { const next={...previous}; delete next[id]; return next; });
+  const onAdjustCad = (id, patch) => setCadAssets(previous => previous[id] ? ({...previous,[id]:{...previous[id],...patch}}) : previous);
 
   // Keep edit operations entirely local; no project data goes to a server.
   useEffect(() => {
@@ -854,7 +855,7 @@ export default function App() {
         {notification && <div className={`toast ${notification.tone}`} role="status"><span>{notification.tone === 'error' ? <AlertTriangle size={17}/> : <CircleCheck size={17}/>}</span>{notification.text}<button onClick={() => setNotification(null)} aria-label="알림 닫기"><X size={15}/></button></div>}
       </main>
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
-        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} cadLoading={cadLoading} />}
+        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} onAdjustCad={onAdjustCad} cadLoading={cadLoading} />}
     </div>
     <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.2 / CORNER FILL DEBUG</span></footer>
   </div>;
