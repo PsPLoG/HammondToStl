@@ -13,8 +13,8 @@ import {
   mm, round1, clamp, faceSize, safePosition, moveWithSnap, layoutIssues,
   issueForPart, edgeDistances, nearestNeighbor, distribute, findOpenSpot, partWorld, assemblyIssues,
 } from './layout.js';
-import { buildShell, buildLid, modelToSTL, downloadBlob, FASTENER_SPEC } from './geometry.js';
-import { getFastenerLayout, interiorCompliance } from './fasteners.js';
+import { buildShell, buildLid, modelToSTL, downloadBlob, FASTENER_SPEC, makeCornerWebGeometry } from './geometry.js';
+import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fasteners.js';
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
 import './styles.css';
@@ -245,7 +245,25 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
   );
 }
 
-function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect }) {
+// Diagnostics: this translucent overlay uses EXACTLY the web solids added to
+// the export CSG. It is a visualization only and is not exported as another STL.
+function CornerFillOverlay({ preset, settings }) {
+  const meshes = useMemo(() => {
+    const height = getFastenerLayout(preset, settings).bossHeight;
+    return getCornerWebs(preset, settings).map(web => makeCornerWebGeometry(web, height));
+  }, [preset, settings.wall, settings.closure, settings.magnetDiameter, settings.magnetTolerance]);
+
+  useEffect(() => () => meshes.forEach(geometry => geometry.dispose()), [meshes]);
+
+  return <group>
+    {meshes.map((geometry, index) => <mesh key={index} geometry={geometry} renderOrder={10}>
+      <meshBasicMaterial color="#8eff73" transparent opacity={0.56}
+        depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>)}
+  </group>;
+}
+
+function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill }) {
   if (!model?.shell || !model?.lid) return null;
   const selected = parts.find(p => p.id === selectedId);
   const clickShell = e => {
@@ -290,6 +308,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
       <meshStandardMaterial color={board.id === selectedBoardId ? '#6bdfaa' : '#27946f'}
         roughness={.6} metalness={.12} transparent opacity={.94} side={THREE.DoubleSide} />
     </mesh>)}
+    {showCornerFill && <CornerFillOverlay preset={preset} settings={settings} />}
     {highlights}
     {selected && label && <Html position={label} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
       <div className="three-label">{COMPONENTS[selected.type].short} <b>Ø {selected.hole.toFixed(1)}</b></div>
@@ -300,11 +319,14 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
 function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect }) {
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
+  const [showCornerFill, setShowCornerFill] = useState(true);
   return <div className="preview-content">
     <div className="preview-floating"><span className="live-dot" />{computing ? 'UPDATING MESH' : model?.error ? 'MESH ERROR' : 'LIVE MODEL'}</div>
     <div className="preview-actions">
       <button title="카메라 초기화" onClick={() => setCameraKey(n => n+1)}><RotateCcw size={16} /></button>
       <button title="와이어프레임 전환" className={wire ? 'active' : ''} onClick={() => setWire(x => !x)}><Grip size={16} /></button>
+      <button title="코너 보강부 강조 표시 (녹색 = 실제 CSG에 사용하는 채움 형상)" aria-pressed={showCornerFill}
+        className={showCornerFill ? 'active' : ''} onClick={() => setShowCornerFill(x => !x)}><Layers3 size={16} /></button>
     </div>
     <div className="preview-viewport">
       <Canvas key={cameraKey} shadows camera={{ position: [preset.w * 1.7, preset.h * 3.7, preset.l * 1.65], fov: 39, near: 0.1, far: 1200 }} dpr={[1, 1.8]} gl={{ antialias: true, alpha: true }}>
@@ -313,7 +335,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
         <directionalLight position={[110, 170, 90]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-100, 50, -80]} intensity={0.9} />
         <group>
-          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} />
+          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} />
           {wire && model?.shell && <mesh geometry={model.shell.geometry}>
             <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
           </mesh>}
@@ -323,7 +345,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
       </Canvas>
     </div>
     {model?.error && <div className="preview-error"><AlertTriangle size={15} /> {model.error}</div>}
-    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>CLICK A FACE TO EDIT</span></div>
+    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showCornerFill ? '연두색 = 코너 보강부 강조' : '코너 보강부 강조 꺼짐'}</span></div>
   </div>;
 }
 
@@ -729,7 +751,7 @@ export default function App() {
     <header className="topbar">
       <div className="topbar-main">
       <div className="brand"><div className="brand-logo"><Box size={21} strokeWidth={2.2} /></div><div className="brand-word">PEDAL<span>FORM</span><small>ENCLOSURE STUDIO</small></div></div>
-      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">BETA</span></div>
+      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">v0.4.2</span></div>
       <div className="header-actions">
         <input type="file" ref={fileRef} accept=".json,application/json" onChange={loadJson} hidden />
         <button className="top-btn subtle" onClick={reset} title="초기화"><RotateCcw size={16} /> <span>초기화</span></button>
@@ -778,6 +800,6 @@ export default function App() {
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
         <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length} />}
     </div>
-    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4 / TOP NAVIGATION</span></footer>
+    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.2 / CORNER FILL DEBUG</span></footer>
   </div>;
 }

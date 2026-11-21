@@ -72,6 +72,20 @@ class CSGBuilder {
   }
 }
 
+// Single source of truth for CSG reinforcement and the visible inspection overlay.
+export function makeCornerWebGeometry(web, height) {
+  const contour = new THREE.Shape();
+  // ExtrudeGeometry uses XY. After rotating -90° around X, local -Y becomes world +Z.
+  web.points.forEach(([px, pz], index) => index === 0 ?
+    contour.moveTo(px, -pz) : contour.lineTo(px, -pz));
+  contour.closePath();
+  const solid = new THREE.ExtrudeGeometry(contour, {
+    depth: height, steps: 1, bevelEnabled: false, curveSegments: 6,
+  });
+  solid.rotateX(-Math.PI / 2);
+  return solid;
+}
+
 export function buildShell(preset, settings, parts = []) {
   const { w, l, h, radius } = preset;
   const t = settings.wall;
@@ -83,19 +97,10 @@ export function buildShell(preset, settings, parts = []) {
   const posts = mounting.centers;
   const isScrew = settings.closure === 'screw';
   const height = mounting.bossHeight;
-  // Closed polygonal corner fills reach INTO the adjacent walls and follow the
-  // rounded outer silhouette. They are extruded from the lid plane to the roof.
+  // Same solid web geometry is also used by the optional visual overlay.
+  // Actual STL geometry receives these full-volume pieces through CSG union.
   for (const web of getCornerWebs(preset, settings)) {
-    const contour = new THREE.Shape();
-    // ExtrudeGeometry uses XY, then rotate -90deg around X -> world X / -Z.
-    web.points.forEach(([px, pz], i) => i === 0 ?
-      contour.moveTo(px, -pz) : contour.lineTo(px, -pz));
-    contour.closePath();
-    const solidWeb = new THREE.ExtrudeGeometry(contour, {
-      depth: height, steps: 1, bevelEnabled: false, curveSegments: 6,
-    });
-    solidWeb.rotateX(-Math.PI / 2);
-    shell.apply(solidWeb, ADDITION);
+    shell.apply(makeCornerWebGeometry(web, height), ADDITION);
   }
   for (const [x, z] of posts) {
     shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);

@@ -492,3 +492,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .top-menu-panel .aside-head { margin: 0 0 12px; }
   .top-menu-panel .palette-hint { margin-top: 10px; }
 }
+
+/* v0.4.2 - visibly inspect webbed corner reinforcement */
+.preview-actions button[aria-pressed="true"] { background: #d6f7c9; border-color: #80c67c; color: #257e36; }
+.preview-bottom span:last-child { color: #397e4c; font-weight: 800; }
