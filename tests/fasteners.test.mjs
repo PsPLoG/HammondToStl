@@ -71,28 +71,30 @@ test('full-height corner pillars reach the roof and bottom plane', () => {
   }
 });
 
-test('corner webs bridge each boss to the adjacent walls without protruding', () => {
+test('solid corner polygons overlap both walls without enlarging outside outline', () => {
   for (const preset of Object.values(ENCLOSURES)) {
     for (const wall of [2, 2.4, 5]) {
       for (const closure of ['screw', 'magnet']) {
         const settings = { ...screw, wall, closure };
-        const m = getFastenerLayout(preset, settings);
+        const mount = getFastenerLayout(preset, settings);
         const webs = getCornerWebs(preset, settings);
         assert.equal(webs.length, 4);
-        webs.forEach((web, i) => {
-          const [x,z] = m.centers[i];
+        for (let i = 0; i < 4; i++) {
+          const web = webs[i];
+          const [x,z] = mount.centers[i];
+          assert.ok(web.points.length >= 20);
+          assert.ok(web.startX < Math.abs(x) && web.startZ < Math.abs(z));
           assert.ok(web.width > 0 && web.length > 0);
-          assert.equal(Math.sign(web.x), Math.sign(x));
-          assert.equal(Math.sign(web.z), Math.sign(z));
-          const farX = Math.abs(web.x) + web.width / 2;
-          const farZ = Math.abs(web.z) + web.length / 2;
-          close(farX, preset.w / 2 - wall - 0.35);
-          close(farZ, preset.l / 2 - wall - 0.35);
-          assert.ok(outlineClearance(preset, farX, farZ) >= -0.01,
-            preset.code + ' reinforcement extends outside rounded enclosure');
-          assert.ok(Math.abs(web.x) - web.width / 2 < Math.abs(x),
-            'reinforcement must overlap its round boss');
-        });
+          // The web must enter BOTH existing straight walls: no gap remains.
+          assert.ok(web.points.some(([px]) => Math.abs(px) > preset.w/2 - settings.wall),
+            preset.code + ' web fails to enter X wall');
+          assert.ok(web.points.some(([,pz]) => Math.abs(pz) > preset.l/2 - settings.wall),
+            preset.code + ' web fails to enter Z wall');
+          for (const [px,pz] of web.points) {
+            assert.ok(outlineClearance(preset, px, pz) >= web.exteriorSkin - 0.03,
+              preset.code + ' web protrudes outside exterior profile: ' + px + ',' + pz);
+          }
+        }
       }
     }
   }

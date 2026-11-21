@@ -66,24 +66,44 @@ export function interiorCompliance(preset, settings) {
 }
 
 
-// Fill the entire inward-facing corner quadrant between each round boss and
-// its two neighbouring walls. The web sits INSIDE the exterior rounded profile.
-// End inset prevents a protruding square corner; roof-to-lid extrusion joins
-// all three surfaces into one printable shell instead of isolated cylinders.
+// A solid corner fill, not two free-standing ribs.  Build a 2D polygon reaching
+// INTO the actual shell wall, while following the rounded outside profile.
+// This removes the 0.35mm air gap left by the old rectangular reinforcement.
+// The small exterior skin ensures the union never expands the outside outline.
 export function getCornerWebs(preset, settings) {
   const mounting = getFastenerLayout(preset, settings);
-  const endX = preset.w / 2 - settings.wall - 0.35;
-  const endZ = preset.l / 2 - settings.wall - 0.35;
+  const exteriorSkin = 0.65;
+  const outerX = preset.w / 2 - exteriorSkin;
+  const radius = Math.max(0.7, preset.radius - exteriorSkin);
+  const cx = preset.w / 2 - preset.radius;
+  const cz = preset.l / 2 - preset.radius;
+  const outerZ = preset.l / 2 - exteriorSkin;
+  const outerZAtX = x => x <= cx ? outerZ :
+    Math.min(outerZ, cz + Math.sqrt(Math.max(0, radius * radius - (x - cx) ** 2)));
+
   return mounting.centers.map(([x, z]) => {
-    const startX = Math.abs(x) - mounting.radius * 0.55;
-    const startZ = Math.abs(z) - mounting.radius * 0.55;
-    const width = endX - startX;
-    const length = endZ - startZ;
-    if (width <= 0 || length <= 0) throw new Error('Corner reinforcement cannot fit this enclosure');
+    const sx = Math.sign(x), sz = Math.sign(z);
+    const startX = Math.abs(x) - mounting.radius * 0.78;
+    const startZ = Math.abs(z) - mounting.radius * 0.78;
+    if (startX >= outerX || startZ >= outerZAtX(outerX)) {
+      throw new Error('Corner fill cannot fit this enclosure');
+    }
+
+    // Follow the exterior quarter circle with a short polygonal arc.
+    const points = [[startX, startZ], [outerX, startZ]];
+    const segments = 18;
+    for (let i = segments; i >= 0; i--) {
+      const px = startX + (outerX - startX) * i / segments;
+      points.push([px, outerZAtX(px)]);
+    }
     return {
-      x: Math.sign(x) * (startX + endX) / 2,
-      z: Math.sign(z) * (startZ + endZ) / 2,
-      width, length,
+      points: points.map(([px,pz]) => [sx * px, sz * pz]),
+      x: sx * (startX + outerX) / 2,
+      z: sz * (startZ + outerZAtX(startX)) / 2,
+      width: outerX - startX,
+      length: outerZAtX(startX) - startZ,
+      startX, startZ,
+      exteriorSkin,
     };
   });
 }

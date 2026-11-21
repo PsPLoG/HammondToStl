@@ -83,10 +83,19 @@ export function buildShell(preset, settings, parts = []) {
   const posts = mounting.centers;
   const isScrew = settings.closure === 'screw';
   const height = mounting.bossHeight;
-  // Solid corner webs eliminate unsupported gaps between columns and both walls.
-  // Their height reaches the inner roof as well as the bottom opening (Y=0).
+  // Closed polygonal corner fills reach INTO the adjacent walls and follow the
+  // rounded outer silhouette. They are extruded from the lid plane to the roof.
   for (const web of getCornerWebs(preset, settings)) {
-    shell.apply(new THREE.BoxGeometry(web.width, height, web.length), ADDITION, [web.x, height / 2, web.z]);
+    const contour = new THREE.Shape();
+    // ExtrudeGeometry uses XY, then rotate -90deg around X -> world X / -Z.
+    web.points.forEach(([px, pz], i) => i === 0 ?
+      contour.moveTo(px, -pz) : contour.lineTo(px, -pz));
+    contour.closePath();
+    const solidWeb = new THREE.ExtrudeGeometry(contour, {
+      depth: height, steps: 1, bevelEnabled: false, curveSegments: 6,
+    });
+    solidWeb.rotateX(-Math.PI / 2);
+    shell.apply(solidWeb, ADDITION);
   }
   for (const [x, z] of posts) {
     shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
