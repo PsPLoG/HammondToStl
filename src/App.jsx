@@ -15,6 +15,8 @@ import {
 } from './layout.js';
 import { buildShell, buildLid, modelToSTL, downloadBlob, FASTENER_SPEC } from './geometry.js';
 import { getFastenerLayout, interiorCompliance } from './fasteners.js';
+import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
+import { applyKnobPreset } from './knobPresets.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -54,7 +56,15 @@ function sanitizeProject(json) {
     const keepout = clamp(Number(x.keepout) || defaultP.keepout, hole, 45);
     return { id, type: x.type, face: x.face, u: round1(Number(x.u) || 0), v: round1(Number(x.v) || 0), hole, keepout };
   });
-  return { settings: s, parts: p };
+  const boardPreset = getPreset(s.enclosure);
+  const usedBoards = new Set();
+  const boards = (Array.isArray(json.boards) ? json.boards : []).filter(Boolean).slice(0, 10).map(raw => {
+    const board = sanitizePCB(raw, boardPreset, s);
+    if (usedBoards.has(board.id)) board.id = idGen();
+    usedBoards.add(board.id);
+    return board;
+  });
+  return { settings: s, parts: p, boards };
 }
 
 function NumberField({ label, value, onCommit, min = -999, max = 999, step = 0.1, suffix = 'mm', disabled = false }) {
@@ -85,7 +95,7 @@ function SegmentedTabs({ items, value, onChange, dense = false }) {
   </div>;
 }
 
-function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, showGuides }) {
+function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, showGuides, boards, selectedBoardId, onBoardSelect, onBoardMove }) {
   const svgRef = useRef(null);
   const dragging = useRef(null);
   const [snaps, setSnaps] = useState(null);
@@ -118,12 +128,28 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
     e.preventDefault(); e.stopPropagation();
     onSelect(part.id);
     const p = toLocal(e);
-    dragging.current = { id: part.id, offU: part.u - p.u, offV: part.v - p.v };
+    dragging.current = { kind: 'part', id: part.id, offU: part.u - p.u, offV: part.v - p.v };
+    svgRef.current?.setPointerCapture(e.pointerId);
+  };
+  const startBoardDrag = (e, board) => {
+    if (e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    onBoardSelect(board.id);
+    const p = toLocal(e);
+    dragging.current = { kind: 'board', id: board.id, offU: board.x - p.u, offV: board.z - p.v };
     svgRef.current?.setPointerCapture(e.pointerId);
   };
   const updateDrag = e => {
     if (!dragging.current) return;
     const p = toLocal(e);
+    if (dragging.current.kind === 'board') {
+      const board = boards.find(b => b.id === dragging.current.id);
+      if (!board) return;
+      const moved = movePCB(board, p.u + dragging.current.offU, p.v + dragging.current.offV, getPreset(settings.enclosure), settings);
+      onBoardMove(board.id, { x: moved.x, z: moved.z });
+      setSnaps(null);
+      return;
+    }
     const target = parts.find(x => x.id === dragging.current.id);
     if (!target) return;
     const moved = moveWithSnap(target, p.u + dragging.current.offU, p.v + dragging.current.offV, parts, settings, e.shiftKey);
@@ -152,6 +178,18 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
         <g clipPath={`url(#${defId}-clip)`}>
           <rect x={-d.width/2} y={-d.height/2} width={d.width} height={d.height} fill={`url(#${defId}-grid)`} />
           {grid}
+          {face === 'top' && boards.map(board => <g key={board.id} className="pcb-footprint" role="button" aria-label={board.name + ' 위치 이동'}
+            onPointerDown={ev => startBoardDrag(ev, board)}>
+            <rect x={board.x - board.width/2} y={board.z - board.length/2}
+              width={board.width} height={board.length} rx="0.8"
+              fill={selectedBoardId === board.id ? '#66cda0' : '#8dccb1'}
+              fillOpacity={selectedBoardId === board.id ? .35 : .19}
+              stroke={selectedBoardId === board.id ? '#16885b' : '#50a486'}
+              strokeWidth={selectedBoardId === board.id ? .8 : .42}
+              strokeDasharray={selectedBoardId === board.id ? '0' : '2 1.5'} />
+            <text x={board.x} y={board.z} textAnchor="middle" fontSize="3.2" fill="#1e8062" fontWeight="800" pointerEvents="none">{board.name}</text>
+            <text x={board.x} y={board.z + 4} textAnchor="middle" fontSize="2.3" fill="#1e8062" pointerEvents="none">{board.width.toFixed(0)} × {board.length.toFixed(0)} mm</text>
+          </g>)}
           {fasteners?.centers.map(([x,z], i) => <g key={`post-${i}`} className="fastener-footprint" pointerEvents="none">
             <circle cx={x} cy={z} r={fasteners.radius} />
             <circle cx={x} cy={z} r={settings.closure === 'screw' ? FASTENER_SPEC.screwPilot / 2 : (settings.magnetDiameter + settings.magnetTolerance) / 2} className="fastener-bore" />
@@ -202,12 +240,12 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
           <text x={d.width/2 + 2} y={d.height/2 + 7} textAnchor="end" fontSize={textSize*.82}>1 unit = 1 mm</text>
         </g>
       </svg>
-      <div className="diagram-footer"><span><i className="diagram-dot filled" /> 절삭 홀</span><span><i className="diagram-dot outlined" /> 부품 간섭 영역</span><span><i className="diagram-line" /> 실시간 치수</span>{face === 'top' && <span className="fastener-legend">◌ 하판 체결부 투영</span>}</div>
+      <div className="diagram-footer"><span><i className="diagram-dot filled" /> 절삭 홀</span><span><i className="diagram-dot outlined" /> 부품 간섭 영역</span><span><i className="diagram-line" /> 실시간 치수</span>{face === 'top' && <><span className="fastener-legend">◌ 하판 체결부 투영</span><span className="pcb-legend">▧ PCB 내부 투영</span></>}</div>
     </div>
   );
 }
 
-function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace }) {
+function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect }) {
   if (!model?.shell || !model?.lid) return null;
   const selected = parts.find(p => p.id === selectedId);
   const clickShell = e => {
@@ -240,11 +278,18 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
   const label = selected ? partWorld(selected, preset, settings.wall, settings.wall / 2 + 6.5).position : null;
   return <>
     <mesh geometry={model.shell.geometry} onClick={clickShell} castShadow receiveShadow>
-      <meshStandardMaterial color="#8ca4a5" metalness={0.47} roughness={0.36} side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#8ca4a5" metalness={0.47} roughness={0.36} side={THREE.DoubleSide}
+        transparent={!!settings.xray} opacity={settings.xray ? .24 : 1} depthWrite={!settings.xray} />
     </mesh>
     {settings.showLid && <mesh geometry={model.lid.geometry} position={[0, settings.exploded ? -14 : 0, 0]} castShadow receiveShadow>
       <meshStandardMaterial color="#6b888b" metalness={0.38} roughness={0.42} side={THREE.DoubleSide} />
     </mesh>}
+    {boards.map(board => <mesh key={board.id} position={[board.x, board.bottomY + board.thickness/2, board.z]}
+      onClick={event => { event.stopPropagation(); onBoardSelect(board.id); }}>
+      <boxGeometry args={[board.width, board.thickness, board.length]} />
+      <meshStandardMaterial color={board.id === selectedBoardId ? '#6bdfaa' : '#27946f'}
+        roughness={.6} metalness={.12} transparent opacity={.94} side={THREE.DoubleSide} />
+    </mesh>)}
     {highlights}
     {selected && label && <Html position={label} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
       <div className="three-label">{COMPONENTS[selected.type].short} <b>Ø {selected.hole.toFixed(1)}</b></div>
@@ -252,7 +297,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
   </>;
 }
 
-function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing }) {
+function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect }) {
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
   return <div className="preview-content">
@@ -268,7 +313,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
         <directionalLight position={[110, 170, 90]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-100, 50, -80]} intensity={0.9} />
         <group>
-          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} />
+          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} />
           {wire && model?.shell && <mesh geometry={model.shell.geometry}>
             <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
           </mesh>}
@@ -282,7 +327,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
   </div>;
 }
 
-function Sidebar({ settings, setSettings, face, onAdd, parts }) {
+function Sidebar({ settings, setSettings, face, onAdd, parts, boards, selectedBoardId, onSelectBoard, onAddBoard, onRemoveBoard, onPreset }) {
   const preset = getPreset(settings.enclosure);
   const mounts = getFastenerLayout(preset, settings);
   const specFit = interiorCompliance(preset, settings);
@@ -309,7 +354,7 @@ function Sidebar({ settings, setSettings, face, onAdd, parts }) {
       <div className="aside-head"><span className="section-eyebrow">02 / FASTENING</span><h2>하판 결합 방식</h2></div>
       <div className="closure-options">
         <button onClick={() => set({ closure: 'screw' })} className={`closure-option ${settings.closure === 'screw' ? 'chosen' : ''}`}>
-          <span className="closure-icon">✳</span><span><b>슬림 M3 나사</b><small>Ø6mm 기둥 · 모서리 일체형</small></span><span className="radio-dot" />
+          <span className="closure-icon">✳</span><span><b>슬림 M3 나사</b><small>Ø6mm 기둥 · 벽/상판 일체형 보강</small></span><span className="radio-dot" />
         </button>
         <button onClick={() => set({ closure: 'magnet' })} className={`closure-option ${settings.closure === 'magnet' ? 'chosen' : ''}`}>
           <Magnet size={21} /><span><b>네오디뮴 자석</b><small>본체 / 하판 4쌍 포켓</small></span><span className="radio-dot" />
@@ -330,6 +375,23 @@ function Sidebar({ settings, setSettings, face, onAdd, parts }) {
         </button>)}
       </div>
       <div className="palette-hint"><Info size={14} /> 기본 홀 지름은 예시입니다. 실부품 데이터시트에 맞게 변경하세요.</div>
+      <div className="aside-divider" />
+      <div className="aside-head"><span className="section-eyebrow">04 / PRESETS</span><h2>노브 프리셋</h2>
+        <p>상판 포텐셔미터만 교체하며 LED·잭·풋스위치는 유지합니다.</p></div>
+      <div className="knob-presets">
+        {[1,2,3,4,5,6].map(count => <button key={count} onClick={() => onPreset(count)} title={count + '노브 자동 배치'}>{count}<small>노브</small></button>)}
+      </div>
+      <div className="aside-divider" />
+      <div className="aside-head"><span className="section-eyebrow">05 / PCB</span><h2>기판 배치</h2>
+        <p>내부에 가상 PCB를 넣어 공간과 간섭을 확인하세요.</p></div>
+      <button className="add-board" onClick={onAddBoard}><Plus size={16} /> PCB 추가</button>
+      {boards.length > 0 && <div className="pcb-list">{boards.map(board =>
+        <div key={board.id} className={'pcb-list-item ' + (selectedBoardId === board.id ? 'active' : '')}>
+          <button onClick={() => onSelectBoard(board.id)}><Layers3 size={16} />
+            <span><b>{board.name}</b><small>{board.width.toFixed(1)} × {board.length.toFixed(1)} mm</small></span></button>
+          <button className="pcb-remove" onClick={() => onRemoveBoard(board.id)} title="PCB 삭제"><Trash2 size={14} /></button>
+        </div>)}</div>}
+      <div className="palette-hint"><Info size={14} /> PCB는 공간 검토용 모형입니다. 실제 PCB 고정 스탠드오프·부품 돌출 높이는 포함하지 않습니다.</div>
     </div>
   </aside>;
 }
@@ -362,10 +424,38 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
   </aside>;
 }
 
+function PCBInspector({ board, boards, preset, settings, onUpdate, onDelete, issueCount }) {
+  const issue = checkPCBLayout(boards, preset, settings, getFastenerLayout(preset, settings)).find(i => i.id === board.id);
+  return <aside className="inspector">
+    <div className="inspector-head"><span className="section-eyebrow">PCB PROPERTIES</span><h2>PCB 치수 및 위치</h2></div>
+    <div className="inspector-body">
+      <div className="selected-meta"><div className="pcb-inspector-icon"><Layers3 size={24} /></div>
+        <div><span>SELECTED CIRCUIT BOARD</span><h3>{board.name}</h3><small>내부 공간 검토용 가상 기판</small></div></div>
+      <div className="inspector-section"><h4><Ruler size={15} /> 실물 기판 크기</h4><div className="two-fields">
+        <NumberField label="너비 X" value={board.width} min={8} max={Math.max(8,preset.w-2*settings.wall-1.6)} onCommit={width => onUpdate(board.id,{width})} />
+        <NumberField label="길이 Z" value={board.length} min={8} max={Math.max(8,preset.l-2*settings.wall-1.6)} onCommit={length => onUpdate(board.id,{length})} />
+        <NumberField label="두께" value={board.thickness} min={.8} max={4} onCommit={thickness => onUpdate(board.id,{thickness})} />
+      </div></div>
+      <div className="inspector-section"><h4><Crosshair size={15} /> 내부 위치</h4><div className="two-fields">
+        <NumberField label="중심 X" value={board.x} onCommit={x => onUpdate(board.id,{x})} />
+        <NumberField label="중심 Z" value={board.z} onCommit={z => onUpdate(board.id,{z})} />
+        <NumberField label="하판 위 높이 Y" value={board.bottomY} min={0} max={preset.h} onCommit={bottomY => onUpdate(board.id,{bottomY})} />
+      </div><p className="micro-help">하판 접합면 Y=0 기준, 상판 내부 천장 Y={(preset.h-settings.wall).toFixed(1)} mm</p></div>
+      {issue ? <div className="inspector-alert"><AlertTriangle size={15} /><span>{issue.error}</span></div> :
+        <div className="inspector-ok"><CircleCheck size={15} /><span>내벽·기둥·다른 PCB와의 기본 간섭 검사 통과</span></div>}
+      <p className="micro-help">상판 2D에서 PCB 영역을 드래그할 수 있습니다. 전자부품·PCB 고정용 나사홀·스탠드오프는 아직 모델링하지 않습니다.</p>
+      <div className="inspect-actions"><button className="delete" onClick={() => onDelete(board.id)}><Trash2 size={15} /> PCB 삭제</button></div>
+    </div>
+    <div className="inspector-bottom"><div className="inspector-bottom-top"><span>LAYOUT CHECK</span><strong>{issueCount === 0 ? 'PASS' : issueCount + ' ISSUES'}</strong></div><p>STL 출력에는 기판을 포함하지 않습니다.</p></div>
+  </aside>;
+}
+
 export default function App() {
   const initial = useRef(readLocalProject());
   const [settings, setSettings] = useState(() => initial.current?.settings ?? { ...DEFAULT_SETTINGS });
   const [parts, setParts] = useState(() => initial.current?.parts ?? DEFAULT_PARTS.map(p => ({ ...p })));
+  const [boards, setBoards] = useState(() => initial.current?.boards ?? []);
+  const [selectedBoardId, setSelectedBoardId] = useState(null);
   const [activeFace, setActiveFace] = useState('top');
   const [selectedId, setSelectedId] = useState('foot-1');
   const [notification, setNotification] = useState(null);
@@ -374,19 +464,23 @@ export default function App() {
   const [computing, setComputing] = useState(true);
   const fileRef = useRef(null);
   const preset = getPreset(settings.enclosure);
-  const issues = useMemo(() => [...layoutIssues(parts, settings), ...assemblyIssues(settings)], [parts, settings]);
+  const pcbIssues = useMemo(() => checkPCBLayout(boards, preset, settings, getFastenerLayout(preset, settings)), [boards, preset, settings]);
+  const issues = useMemo(() => [...layoutIssues(parts, settings), ...assemblyIssues(settings), ...pcbIssues], [parts, settings, pcbIssues]);
   const selected = parts.find(p => p.id === selectedId) ?? null;
+  const selectedBoard = boards.find(b => b.id === selectedBoardId) ?? null;
+  const selectPart = id => { setSelectedId(id); setSelectedBoardId(null); };
+  const selectBoard = id => { setSelectedId(null); setSelectedBoardId(id); setActiveFace('top'); };
   const onFace = (face, preserveSelection = false) => {
     setActiveFace(face);
-    if (!preserveSelection) setSelectedId(null);
+    if (!preserveSelection) { setSelectedId(null); setSelectedBoardId(null); }
   };
   const notify = (text, tone = 'info') => setNotification({ text, tone });
 
   // Keep edit operations entirely local; no project data goes to a server.
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, settings, parts })); }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, settings, parts, boards })); }
     catch { /* Browser may disallow local storage; JSON export still works. */ }
-  }, [settings, parts]);
+  }, [settings, parts, boards]);
 
   const modelKey = useMemo(() => JSON.stringify({
     enclosure: settings.enclosure, closure: settings.closure,
@@ -426,11 +520,35 @@ export default function App() {
   }, [model]);
 
   const updatePart = (id, patch) => setParts(list => list.map(p => p.id === id ? { ...p, ...patch } : p));
+  const updateBoard = (id, patch) => setBoards(list => list.map(b => b.id === id ? { ...b, ...patch } : b));
+  const dragBoard = (id, patch) => setBoards(list => list.map(b => b.id === id ? movePCB({...b, ...patch}, patch.x ?? b.x, patch.z ?? b.z, preset, settings) : b));
+  const addBoard = () => {
+    if (boards.length >= 10) { notify('PCB는 최대 10장까지 추가할 수 있습니다.', 'error'); return; }
+    const next = makePCB(preset, settings, boards.length, idGen());
+    setBoards(list => [...list, next]);
+    selectBoard(next.id);
+    setSettings(s => ({ ...s, xray: true }));
+    notify('PCB를 추가했습니다. 2D 도면에서 배치하세요.');
+  };
+  const removeBoard = id => {
+    setBoards(list => list.filter(b => b.id !== id));
+    setSelectedBoardId(null);
+    notify('PCB를 삭제했습니다.');
+  };
+  const setKnobPreset = count => {
+    const result = applyKnobPreset(count, parts, settings);
+    if (result.error) { notify(result.error, 'error'); return; }
+    setParts(result.parts);
+    setSelectedId(result.parts.find(p => p.type === 'potentiometer' && p.face === 'top')?.id ?? null);
+    setSelectedBoardId(null);
+    setActiveFace('top');
+    notify(count + '노브 프리셋을 적용했습니다.');
+  };
   const addPart = (type) => {
     const meta = COMPONENTS[type];
     const newPart = findOpenSpot({ id: idGen(), type, face: activeFace, u: 0, v: 0, hole: meta.hole, keepout: meta.keepout }, parts, settings);
     setParts(list => [...list, newPart]);
-    setSelectedId(newPart.id);
+    selectPart(newPart.id);
     notify(`${meta.label} 추가됨 · ${FACE_LABELS[activeFace]}`);
   };
   const deletePart = (id) => {
@@ -443,7 +561,7 @@ export default function App() {
     if (!original) return;
     const dup = findOpenSpot({ ...original, id: idGen(), u: original.u + original.keepout, v: original.v + 10 }, parts, settings);
     setParts(list => [...list, dup]);
-    setSelectedId(dup.id);
+    selectPart(dup.id);
     notify('부품을 복제했습니다.');
   };
   const autoSpace = (axis) => {
@@ -452,7 +570,7 @@ export default function App() {
     setParts(result.parts);
     notify(`${FACE_LABELS[activeFace]} · ${axis === 'u' ? '가로' : '세로'} 균등 간격 ${mm(result.gap)}`);
   };
-  const projectJson = () => JSON.stringify({ format: 'pedalform-enclosure', version: 1, settings, parts }, null, 2);
+  const projectJson = () => JSON.stringify({ format: 'pedalform-enclosure', version: 2, settings, parts, boards }, null, 2);
   const saveJson = () => {
     downloadBlob(new Blob([projectJson()], { type: 'application/json;charset=utf-8' }), `pedalform_${settings.enclosure}_layout.json`);
     notify('프로젝트 JSON을 다운로드했습니다.');
@@ -462,7 +580,7 @@ export default function App() {
     if (!file) return;
     try {
       const json = sanitizeProject(JSON.parse(await file.text()));
-      setSettings(json.settings); setParts(json.parts); setActiveFace('top'); setSelectedId(null);
+      setSettings(json.settings); setParts(json.parts); setBoards(json.boards); setActiveFace('top'); setSelectedId(null); setSelectedBoardId(null);
       notify('프로젝트를 불러왔습니다.');
     } catch {
       notify('프로젝트 파일을 읽지 못했습니다. JSON 형식을 확인하세요.', 'error');
@@ -473,6 +591,7 @@ export default function App() {
     if (!window.confirm('현재 프로젝트를 초기화할까요? 로컬 저장 내용도 덮어써집니다.')) return;
     setSettings({ ...DEFAULT_SETTINGS });
     setParts(DEFAULT_PARTS.map(p => ({ ...p })));
+    setBoards([]); setSelectedBoardId(null);
     setActiveFace('top'); setSelectedId('foot-1');
     notify('기본 설계를 복원했습니다.');
   };
@@ -500,14 +619,24 @@ export default function App() {
   const currentParts = parts.filter(p => p.face === activeFace);
   useEffect(() => {
     const onKey = e => {
-      if (!selectedId || e.altKey || e.metaKey || e.ctrlKey) return;
+      if ((!selectedId && !selectedBoardId) || e.altKey || e.metaKey || e.ctrlKey) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target?.isContentEditable) return;
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        e.preventDefault(); deletePart(selectedId); return;
+        e.preventDefault();
+        if (selectedBoardId) removeBoard(selectedBoardId);
+        else deletePart(selectedId);
+        return;
       }
       const direction = { ArrowUp:[0,-1], ArrowDown:[0,1], ArrowLeft:[-1,0], ArrowRight:[1,0] }[e.key];
       if (!direction) return;
       e.preventDefault();
+      if (selectedBoardId) {
+        const board = boards.find(b => b.id === selectedBoardId);
+        if (!board) return;
+        const delta = e.shiftKey ? 5 : 0.5;
+        dragBoard(board.id, { x: board.x + direction[0]*delta, z: board.z + direction[1]*delta });
+        return;
+      }
       const part = parts.find(p => p.id === selectedId);
       if (!part) return;
       const delta = e.shiftKey ? 5 : 0.5;
@@ -516,7 +645,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectedId, settings, parts]);
+  }, [selectedId, selectedBoardId, settings, parts, boards]);
 
   return <div className="app-shell">
     <header className="topbar">
@@ -534,9 +663,9 @@ export default function App() {
     </header>
 
     <div className="app-layout">
-      <Sidebar settings={settings} setSettings={setSettings} face={activeFace} onAdd={addPart} parts={parts} />
+      <Sidebar settings={settings} setSettings={setSettings} face={activeFace} onAdd={addPart} parts={parts} boards={boards} selectedBoardId={selectedBoardId} onSelectBoard={selectBoard} onAddBoard={addBoard} onRemoveBoard={removeBoard} onPreset={setKnobPreset} />
       <main className="workbench">
-        <div className="workbench-title"><div><div className="section-eyebrow">WORKSPACE / DESIGNER</div><h1>이펙터 케이스 설계<span className="heading-mark">.</span></h1><p>부품 배치부터 정밀 홀 가공, 하판 체결, STL까지 한 화면에서.</p></div><div className="workbench-stat"><span><Layers3 size={15} /> 5 SURFACES</span><b>{parts.length.toString().padStart(2, '0')} <small>COMPONENTS</small></b></div></div>
+        <div className="workbench-title"><div><div className="section-eyebrow">WORKSPACE / DESIGNER</div><h1>이펙터 케이스 설계<span className="heading-mark">.</span></h1><p>부품·PCB 배치, 노브 프리셋, 홀 가공, STL까지 한 화면에서.</p></div><div className="workbench-stat"><span><Layers3 size={15} /> 5 SURFACES</span><b>{parts.length.toString().padStart(2, '0')} <small>COMPONENTS</small></b></div></div>
         <div className="design-panels">
           <section className="drawing-panel">
             <div className="panel-top"><div><span className="panel-index">A / 2D EDITOR</span><h2>홀 위치 편집</h2></div><div className="panel-top-icon"><BoxSelect size={18} /></div></div>
@@ -546,13 +675,13 @@ export default function App() {
             <div className="editor-tools"><span className="tool-label">AUTO LAYOUT</span><button onClick={() => autoSpace('u')} title="간섭 영역 기준 가로 균등 배치"><MoveHorizontal size={16} /> 가로 균등</button><button onClick={() => autoSpace('v')} title="간섭 영역 기준 세로 균등 배치"><MoveVertical size={16} /> 세로 균등</button>
               <button className={`guides-toggle ${settings.showDimensions ? 'active' : ''}`} onClick={() => setSettings(s => ({ ...s, showDimensions: !s.showDimensions }))} title="거리 가이드 표시 전환">{settings.showDimensions ? <Eye size={16} /> : <EyeOff size={16} />}</button>
             </div>
-            <FaceDiagram settings={settings} parts={parts} face={activeFace} selectedId={selectedId} onSelect={setSelectedId} onMove={updatePart} showGuides={settings.showDimensions} />
+            <FaceDiagram settings={settings} parts={parts} face={activeFace} selectedId={selectedId} onSelect={selectPart} onMove={updatePart} showGuides={settings.showDimensions} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} onBoardMove={dragBoard} />
             <div className="panel-footnote"><span>{FACE_LABELS[activeFace]} / {currentParts.length}개 부품</span><span className="mono">{faceSize(settings.enclosure, activeFace).width.toFixed(1)} × {faceSize(settings.enclosure, activeFace).height.toFixed(1)} mm</span></div>
           </section>
           <section className="model-panel">
             <div className="panel-top"><div><span className="panel-index">B / 3D PREVIEW</span><h2>실시간 3D 모델</h2></div><div className="panel-top-icon"><Box size={18} /></div></div>
-            <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
-            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={setSelectedId} onFace={onFace} />
+            <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><button onClick={() => setSettings(s => ({ ...s, xray: !s.xray }))} className={settings.xray ? 'active' : ''}><Eye size={15} /> 내부 보기</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
+            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} />
             <div className="panel-footnote"><span>CSG / 실제 관통 홀 반영</span><span className="mono">MM · STL READY</span></div>
           </section>
         </div>
@@ -564,8 +693,9 @@ export default function App() {
         <div className="engineering-notes"><Info size={15}/><span>슬림 M3 기둥은 하몬드 도면의 <b>평면 내경 및 코너 여유를 참고해 설계</b>했습니다. 전체 내부 높이·내벽 구배와 제조사 제품의 기계적 호환성을 검증한 것은 아닙니다. 특히 3D 프린트 M3 나사는 강도가 낮을 수 있어 테스트 출력 후 금속 M3 나사 사용도 고려하세요.</span></div>
         {notification && <div className={`toast ${notification.tone}`} role="status"><span>{notification.tone === 'error' ? <AlertTriangle size={17}/> : <CircleCheck size={17}/>}</span>{notification.text}<button onClick={() => setNotification(null)} aria-label="알림 닫기"><X size={15}/></button></div>}
       </main>
-      <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length} />
+      {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
+        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length} />}
     </div>
-    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.2 / COMPACT POSTS</span></footer>
+    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.3 / PCB + WEBBED POSTS</span></footer>
   </div>;
 }
