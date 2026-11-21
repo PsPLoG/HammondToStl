@@ -18,6 +18,7 @@ import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fastener
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
 import { makePartReference, partBoardCollisions } from './partModels.js';
+import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, disposeCadGroup } from './externalCad.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -264,13 +265,13 @@ function CornerFillOverlay({ preset, settings }) {
   </group>;
 }
 
-function PartModels({ parts, preset, wall }) {
-  const models = useMemo(() => parts.map(p => makePartReference(p,preset,wall)).filter(Boolean), [parts,preset,wall]);
-  useEffect(() => () => models.forEach(model => model.traverse(node => { if(node.isMesh)node.geometry.dispose(); })), [models]);
+function PartModels({ parts, preset, wall, cadAssets }) {
+  const models = useMemo(() => parts.map(p => cadAssets[p.id] ? makeMountedCadPart(p, preset, wall, cadAssets[p.id]) : makePartReference(p,preset,wall)).filter(Boolean), [parts,preset,wall,cadAssets]);
+  useEffect(() => () => models.forEach(model => { if (!model.userData.linkedCad) model.traverse(node => { if(node.isMesh) node.geometry.dispose(); }); }), [models]);
   return <group>{models.map((model,i) => <primitive key={i} object={model} />)}</group>;
 }
 
-function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill, showParts }) {
+function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill, showParts, cadAssets }) {
   const cleanShell = useMemo(() => model?.shell ? trimForSTL(model.shell) : null, [model?.shell]);
   const cleanLid = useMemo(() => model?.lid ? trimForSTL(model.lid) : null, [model?.lid]);
   useEffect(() => () => { cleanShell?.geometry.dispose(); cleanLid?.geometry.dispose(); }, [cleanShell, cleanLid]);
@@ -318,7 +319,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
       <meshStandardMaterial color={board.id === selectedBoardId ? '#6bdfaa' : '#27946f'}
         roughness={.6} metalness={.12} transparent opacity={.94} side={THREE.DoubleSide} />
     </mesh>)}
-    {showParts && <PartModels parts={parts} preset={preset} wall={settings.wall} />}
+    {showParts && <PartModels parts={parts} preset={preset} wall={settings.wall} cadAssets={cadAssets} />}
     {showCornerFill && <CornerFillOverlay preset={preset} settings={settings} />}
     {highlights}
     {selected && label && <Html position={label} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
@@ -327,7 +328,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
   </>;
 }
 
-function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect }) {
+function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect, cadAssets }) {
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
   const [showCornerFill, setShowCornerFill] = useState(false);
@@ -348,7 +349,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
         <directionalLight position={[110, 170, 90]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-100, 50, -80]} intensity={0.9} />
         <group>
-          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} showParts={showParts} />
+          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} showParts={showParts} cadAssets={cadAssets} />
           {wire && model?.shell && <mesh geometry={model.shell.geometry}>
             <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
           </mesh>}
@@ -509,7 +510,7 @@ function TopMenu({ settings, setSettings, face, onAdd, boards, selectedBoardId, 
   </nav>;
 }
 
-function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount }) {
+function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, cadLoading }) {
   const d = selected ? edgeDistances(selected, settings) : null;
   const next = selected ? nearestNeighbor(selected, parts) : null;
   const issue = selected ? issueForPart(selected, parts, settings) : null;
@@ -525,6 +526,17 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         <NumberField label="관통 홀 Ø" value={selected.hole} min={1} max={32} onCommit={hole => onUpdate(selected.id, { hole, keepout: Math.max(hole, selected.keepout) })} />
         <NumberField label="간섭 영역 Ø" value={selected.keepout} min={selected.hole} max={45} onCommit={keepout => onUpdate(selected.id, { keepout })} />
       </div><p className="micro-help">간섭 영역은 너트·와셔·부품 몸체가 차지하는 공간입니다.</p></div>
+      <div className="inspector-section"><h4><Box size={15} /> 실제 3D CAD 모델</h4>
+        <p className="micro-help">STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB · 파일은 내 브라우저에서 처리합니다. 외부 모델은 원본 파일을 직접 로드합니다.</p>
+        <select className="cad-select" value={cadAssets[selected.id]?.id || ''} disabled={!!cadLoading[selected.id]} onChange={event => event.target.value ? onCatalogCad(selected, event.target.value) : onRemoveCad(selected.id)}>
+          <option value="">참고용 근사 모델</option>
+          {cadAssets[selected.id]?.id === 'local' && <option value="local">{cadAssets[selected.id].label}</option>}
+          {(CAD_CATALOG[selected.type] || []).map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+        </select>
+        <label className="cad-upload"><Upload size={14} /> CAD 파일 직접 가져오기 <input type="file" accept=".step,.stp,.iges,.igs,.brep,.stl,.obj,.glb" disabled={!!cadLoading[selected.id]} onChange={event => { const file = event.target.files?.[0]; if (file) onLocalCad(selected, file); event.target.value = ''; }} /></label>
+        {cadLoading[selected.id] && <p className="micro-help">3D CAD 변환 중…</p>}
+        {cadAssets[selected.id] && <><p className="micro-help">선택: {cadAssets[selected.id].label}</p><p className="micro-help">외형: {cadAssets[selected.id].dimensions.map(n => n.toFixed(1)).join(' × ')} mm · 원본 좌표 기준</p><p className="micro-help">장착 방향은 STEP 좌표계에 따라 수동 확인이 필요합니다.</p><button type="button" onClick={() => onRemoveCad(selected.id)}>CAD 모델 연결 해제</button></>}
+      </div>
       <div className="inspector-section"><h4><Ruler size={15} /> 벽과의 거리 <span>EDGE CLEARANCE</span></h4>
         <div className="clearance-map"><div className="cleared top-gap">{d.top.toFixed(1)}</div><div className="h-clear"><span className="cleared">{d.left.toFixed(1)}</span><span className="center-indicator">Ø {selected.keepout.toFixed(1)}</span><span className="cleared">{d.right.toFixed(1)}</span></div><div className="cleared bottom-gap">{d.bottom.toFixed(1)}</div></div>
         <div className="distance-legend">모든 수치는 부품 <b>간섭 영역의 끝</b> 기준 (mm)</div>
@@ -568,6 +580,8 @@ export default function App() {
   const [settings, setSettings] = useState(() => initial.current?.settings ?? { ...DEFAULT_SETTINGS });
   const [parts, setParts] = useState(() => initial.current?.parts ?? DEFAULT_PARTS.map(p => ({ ...p })));
   const [boards, setBoards] = useState(() => initial.current?.boards ?? []);
+  const [cadAssets, setCadAssets] = useState({});
+  const [cadLoading, setCadLoading] = useState({});
   const [selectedBoardId, setSelectedBoardId] = useState(null);
   const [activeFace, setActiveFace] = useState('top');
   const [selectedId, setSelectedId] = useState('foot-1');
@@ -589,6 +603,19 @@ export default function App() {
     if (!preserveSelection) { setSelectedId(null); setSelectedBoardId(null); }
   };
   const notify = (text, tone = 'info') => setNotification({ text, tone });
+  const onCatalogCad = async (part, id) => {
+    setCadLoading(previous => ({...previous, [part.id]: true}));
+    try { const asset = await loadCatalogCad(part.type, id); setCadAssets(previous => ({...previous, [part.id]: asset})); notify('CAD 로드 성공: ' + asset.label); }
+    catch(error) { notify('CAD 로드 실패: ' + error.message, 'error'); }
+    finally { setCadLoading(previous => ({...previous, [part.id]: false})); }
+  };
+  const onLocalCad = async (part, file) => {
+    setCadLoading(previous => ({...previous, [part.id]: true}));
+    try { const asset = await loadLocalCad(file); setCadAssets(previous => ({...previous, [part.id]: asset})); notify('개인 CAD 로드 성공: ' + file.name); }
+    catch(error) { notify('CAD 로드 실패: ' + error.message, 'error'); }
+    finally { setCadLoading(previous => ({...previous, [part.id]: false})); }
+  };
+  const onRemoveCad = id => setCadAssets(previous => { const next={...previous}; delete next[id]; return next; });
 
   // Keep edit operations entirely local; no project data goes to a server.
   useEffect(() => {
@@ -814,7 +841,7 @@ export default function App() {
           <section className="model-panel">
             <div className="panel-top"><div><span className="panel-index">B / 3D PREVIEW</span><h2>실시간 3D 모델</h2></div><div className="panel-top-icon"><Box size={18} /></div></div>
             <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><button onClick={() => setSettings(s => ({ ...s, xray: !s.xray }))} className={settings.xray ? 'active' : ''}><Eye size={15} /> 내부 보기</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
-            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} />
+            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} cadAssets={cadAssets} />
             <div className="panel-footnote"><span>CSG / 실제 관통 홀 반영</span><span className="mono">MM · STL READY</span></div>
           </section>
         </div>
@@ -827,7 +854,7 @@ export default function App() {
         {notification && <div className={`toast ${notification.tone}`} role="status"><span>{notification.tone === 'error' ? <AlertTriangle size={17}/> : <CircleCheck size={17}/>}</span>{notification.text}<button onClick={() => setNotification(null)} aria-label="알림 닫기"><X size={15}/></button></div>}
       </main>
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
-        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length} />}
+        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} cadLoading={cadLoading} />}
     </div>
     <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.2 / CORNER FILL DEBUG</span></footer>
   </div>;
