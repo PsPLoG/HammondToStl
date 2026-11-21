@@ -205,6 +205,29 @@ export function makeMountedCadPart(part, preset, wall, asset) {
   holder.userData.linkedCad = true;
   return holder;
 }
+// Broad-phase check of actual imported CAD triangles' world-space bounds against PCB.
+// Conservative by design: overlap is a possible collision, not proof of mesh intersection.
+export function checkImportedCadBoards(parts, boards, preset, wall, assets) {
+  const warnings = [];
+  for (const part of parts) {
+    const asset = assets[part.id];
+    if (!asset) continue;
+    const model = makeMountedCadPart(part, preset, wall, asset);
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    for (const board of boards) {
+      const pcb = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(board.x, board.bottomY + board.thickness / 2, board.z),
+        new THREE.Vector3(board.width, board.thickness, board.length),
+      );
+      if (bounds.intersectsBox(pcb)) warnings.push({
+        id: part.id,
+        error: part.id + ' / ' + board.name + ': 불러온 CAD 외형이 PCB와 겹칠 가능성이 있습니다. (AABB 경고)',
+      });
+    }
+  }
+  return warnings;
+}
 export function disposeCadGroup(group) {
   group.traverse(node => {
     if (node.isMesh) {
