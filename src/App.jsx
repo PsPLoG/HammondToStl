@@ -17,7 +17,7 @@ import { buildShell, buildLid, modelToSTL, export3MF, trimForSTL, downloadBlob, 
 import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fasteners.js';
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
-import { makePartReference } from './partModels.js';
+import { makePartReference, partBoardCollisions } from './partModels.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -270,7 +270,7 @@ function PartModels({ parts, preset, wall }) {
   return <group>{models.map((model,i) => <primitive key={i} object={model} />)}</group>;
 }
 
-function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill }) {
+function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill, showParts }) {
   const cleanShell = useMemo(() => model?.shell ? trimForSTL(model.shell) : null, [model?.shell]);
   const cleanLid = useMemo(() => model?.lid ? trimForSTL(model.lid) : null, [model?.lid]);
   useEffect(() => () => { cleanShell?.geometry.dispose(); cleanLid?.geometry.dispose(); }, [cleanShell, cleanLid]);
@@ -318,7 +318,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
       <meshStandardMaterial color={board.id === selectedBoardId ? '#6bdfaa' : '#27946f'}
         roughness={.6} metalness={.12} transparent opacity={.94} side={THREE.DoubleSide} />
     </mesh>)}
-    <PartModels parts={parts} preset={preset} wall={settings.wall} />
+    {showParts && <PartModels parts={parts} preset={preset} wall={settings.wall} />}
     {showCornerFill && <CornerFillOverlay preset={preset} settings={settings} />}
     {highlights}
     {selected && label && <Html position={label} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
@@ -331,10 +331,12 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
   const [showCornerFill, setShowCornerFill] = useState(false);
+  const [showParts, setShowParts] = useState(true);
   return <div className="preview-content">
     <div className="preview-floating"><span className="live-dot" />{computing ? 'UPDATING MESH' : model?.error ? 'MESH ERROR' : 'LIVE MODEL'}</div>
     <div className="preview-actions">
       <button title="카메라 초기화" onClick={() => setCameraKey(n => n+1)}><RotateCcw size={16} /></button>
+      <button title="장착 부품 3D 모델 표시" aria-pressed={showParts} className={showParts ? 'active' : ''} onClick={() => setShowParts(v => !v)}><Box size={16} /></button>
       <button title="와이어프레임 전환" className={wire ? 'active' : ''} onClick={() => setWire(x => !x)}><Grip size={16} /></button>
       <button title="코너 보강부 강조 표시 (녹색 = 실제 CSG에 사용하는 채움 형상)" aria-pressed={showCornerFill}
         className={showCornerFill ? 'active' : ''} onClick={() => setShowCornerFill(x => !x)}><Layers3 size={16} /></button>
@@ -346,7 +348,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
         <directionalLight position={[110, 170, 90]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-100, 50, -80]} intensity={0.9} />
         <group>
-          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} />
+          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} showParts={showParts} />
           {wire && model?.shell && <mesh geometry={model.shell.geometry}>
             <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
           </mesh>}
@@ -356,7 +358,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
       </Canvas>
     </div>
     {model?.error && <div className="preview-error"><AlertTriangle size={15} /> {model.error}</div>}
-    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showCornerFill ? '연두색 = 코너 보강부 강조' : '코너 보강부 강조 꺼짐'}</span></div>
+    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showParts ? '5mm LED: KiCad CAD · 다른 부품: 근사 참고 모델' : '부품 모델 숨김'}</span></div>
   </div>;
 }
 
@@ -576,7 +578,8 @@ export default function App() {
   const fileRef = useRef(null);
   const preset = getPreset(settings.enclosure);
   const pcbIssues = useMemo(() => checkPCBLayout(boards, preset, settings, getFastenerLayout(preset, settings)), [boards, preset, settings]);
-  const issues = useMemo(() => [...layoutIssues(parts, settings), ...assemblyIssues(settings), ...pcbIssues], [parts, settings, pcbIssues]);
+  const referenceCollisions = useMemo(() => partBoardCollisions(parts, boards, preset, settings.wall), [parts, boards, preset, settings.wall]);
+  const issues = useMemo(() => [...layoutIssues(parts, settings), ...assemblyIssues(settings), ...pcbIssues, ...referenceCollisions], [parts, settings, pcbIssues, referenceCollisions]);
   const selected = parts.find(p => p.id === selectedId) ?? null;
   const selectedBoard = boards.find(b => b.id === selectedBoardId) ?? null;
   const selectPart = id => { setSelectedId(id); setSelectedBoardId(null); };
