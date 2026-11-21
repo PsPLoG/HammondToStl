@@ -13,10 +13,11 @@ import {
   mm, round1, clamp, faceSize, safePosition, moveWithSnap, layoutIssues,
   issueForPart, edgeDistances, nearestNeighbor, distribute, findOpenSpot, partWorld, assemblyIssues,
 } from './layout.js';
-import { buildShell, buildLid, modelToSTL, export3MF, downloadBlob, FASTENER_SPEC, makeCornerWebGeometry } from './geometry.js';
+import { buildShell, buildLid, modelToSTL, export3MF, trimForSTL, downloadBlob, FASTENER_SPEC, makeCornerWebGeometry } from './geometry.js';
 import { getFastenerLayout, getCornerWebs, interiorCompliance } from './fasteners.js';
 import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
+import { makePartReference } from './partModels.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -258,12 +259,21 @@ function CornerFillOverlay({ preset, settings }) {
   return <group>
     {meshes.map((geometry, index) => <mesh key={index} geometry={geometry} renderOrder={10}>
       <meshBasicMaterial color="#8eff73" transparent opacity={0.56}
-        depthTest={false} depthWrite={false} side={THREE.DoubleSide} />
+        depthTest={true} depthWrite={false} side={THREE.DoubleSide} />
     </mesh>)}
   </group>;
 }
 
+function PartModels({ parts, preset, wall }) {
+  const models = useMemo(() => parts.map(p => makePartReference(p,preset,wall)).filter(Boolean), [parts,preset,wall]);
+  useEffect(() => () => models.forEach(model => model.traverse(node => { if(node.isMesh)node.geometry.dispose(); })), [models]);
+  return <group>{models.map((model,i) => <primitive key={i} object={model} />)}</group>;
+}
+
 function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, onFace, boards, selectedBoardId, onBoardSelect, showCornerFill }) {
+  const cleanShell = useMemo(() => model?.shell ? trimForSTL(model.shell) : null, [model?.shell]);
+  const cleanLid = useMemo(() => model?.lid ? trimForSTL(model.lid) : null, [model?.lid]);
+  useEffect(() => () => { cleanShell?.geometry.dispose(); cleanLid?.geometry.dispose(); }, [cleanShell, cleanLid]);
   if (!model?.shell || !model?.lid) return null;
   const selected = parts.find(p => p.id === selectedId);
   const clickShell = e => {
@@ -295,11 +305,11 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
   });
   const label = selected ? partWorld(selected, preset, settings.wall, settings.wall / 2 + 6.5).position : null;
   return <>
-    <mesh geometry={model.shell.geometry} onClick={clickShell} castShadow receiveShadow>
+    <mesh geometry={cleanShell.geometry} onClick={clickShell} castShadow receiveShadow>
       <meshStandardMaterial color="#8ca4a5" metalness={0.47} roughness={0.36} side={THREE.DoubleSide}
         transparent={!!settings.xray} opacity={settings.xray ? .24 : 1} depthWrite={!settings.xray} />
     </mesh>
-    {settings.showLid && <mesh geometry={model.lid.geometry} position={[0, settings.exploded ? -14 : 0, 0]} castShadow receiveShadow>
+    {settings.showLid && <mesh geometry={cleanLid.geometry} position={[0, settings.exploded ? -14 : 0, 0]} castShadow receiveShadow>
       <meshStandardMaterial color="#6b888b" metalness={0.38} roughness={0.42} side={THREE.DoubleSide} />
     </mesh>}
     {boards.map(board => <mesh key={board.id} position={[board.x, board.bottomY + board.thickness/2, board.z]}
@@ -308,6 +318,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
       <meshStandardMaterial color={board.id === selectedBoardId ? '#6bdfaa' : '#27946f'}
         roughness={.6} metalness={.12} transparent opacity={.94} side={THREE.DoubleSide} />
     </mesh>)}
+    <PartModels parts={parts} preset={preset} wall={settings.wall} />
     {showCornerFill && <CornerFillOverlay preset={preset} settings={settings} />}
     {highlights}
     {selected && label && <Html position={label} center zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
@@ -319,7 +330,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
 function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect }) {
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
-  const [showCornerFill, setShowCornerFill] = useState(true);
+  const [showCornerFill, setShowCornerFill] = useState(false);
   return <div className="preview-content">
     <div className="preview-floating"><span className="live-dot" />{computing ? 'UPDATING MESH' : model?.error ? 'MESH ERROR' : 'LIVE MODEL'}</div>
     <div className="preview-actions">
