@@ -30,8 +30,8 @@ export const DEFAULT_PARTS = [
   { id: 'pot-2', type: 'potentiometer', face: 'top', u: 15.2, v: -30, hole: 7.5, keepout: 16 },
   { id: 'led-1', type: 'led', face: 'top', u: 0, v: -5, hole: 5, keepout: 9 },
   { id: 'foot-1', type: 'footswitch', face: 'top', u: 0, v: 31, hole: 12, keepout: 25 },
-  { id: 'audio-1', type: 'audioJack', jackType: 'box', face: 'left', u: 10, v: 0, hole: 9.6, keepout: 19 },
-  { id: 'audio-2', type: 'audioJack', jackType: 'box', face: 'right', u: 10, v: 0, hole: 9.6, keepout: 19 },
+  { id: 'audio-1', type: 'audioJack', jackType: 'box-amphenol', face: 'left', u: 10, v: 0, hole: 10, keepout: 20 },
+  { id: 'audio-2', type: 'audioJack', jackType: 'turtle-pj609ba', face: 'right', u: 10, v: 0, hole: 11.2, keepout: 20 },
   { id: 'dc-1', type: 'dcJack', face: 'back', u: 0, v: 0, hole: 12, keepout: 19 },
 ];
 

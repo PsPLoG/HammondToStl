@@ -57,7 +57,7 @@ function sanitizeProject(json) {
     const defaultP = COMPONENTS[x.type];
     const hole = clamp(Number(x.hole) || defaultP.hole, 1, 32);
     const keepout = clamp(Number(x.keepout) || defaultP.keepout, hole, 45);
-    return { id, type: x.type, ...(x.type === 'audioJack' ? { jackType: x.jackType === 'turtle' ? 'turtle' : 'box' } : {}), face: x.face, u: round1(Number(x.u) || 0), v: round1(Number(x.v) || 0), hole, keepout };
+    return { id, type: x.type, ...(x.type === 'audioJack' ? { jackType: JACK_VARIANTS[x.jackType] ? x.jackType : 'box' } : {}), face: x.face, u: round1(Number(x.u) || 0), v: round1(Number(x.v) || 0), hole, keepout };
   });
   const boardPreset = getPreset(s.enclosure);
   const usedBoards = new Set();
@@ -536,14 +536,14 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         <NumberField label="간섭 영역 Ø" value={selected.keepout} min={selected.hole} max={45} onCommit={keepout => onUpdate(selected.id, { keepout })} />
       </div><p className="micro-help">간섭 영역은 너트·와셔·부품 몸체가 차지하는 공간입니다.</p></div>
       <div className="inspector-section"><h4><Box size={15} /> 원본 3D CAD 모델만 표시</h4>
-        <p className="micro-help">직접 만든 근사 모형은 사용하지 않습니다. STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB 원본만 불러옵니다.</p>
+        <p className="micro-help">직접 만든 근사 모형은 사용하지 않습니다. STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB, WRL/VRML 원본만 불러옵니다.</p>
         {!cadAssets[selected.id] && selected.type !== 'led' && <p className="micro-help">3D CAD 미연결: 부품 모형을 표시하지 않습니다. (홀은 그대로 표시)</p>}
         <select className="cad-select" value={cadAssets[selected.id]?.id || ''} disabled={!!cadLoading[selected.id]} onChange={event => event.target.value ? onCatalogCad(selected, event.target.value) : onRemoveCad(selected.id)}>
           <option value="">CAD 없음 — 3D 모형 숨김</option>
           {cadAssets[selected.id]?.id === 'local' && <option value="local">{cadAssets[selected.id].label}</option>}
-          {(CAD_CATALOG[selected.type] || []).map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
+          {(CAD_CATALOG[selected.type] || []).filter(entry => selected.type !== 'audioJack' || !entry.jackType || entry.jackType === selected.jackType).map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
         </select>
-        <label className="cad-upload"><Upload size={14} /> CAD 파일 직접 가져오기 <input type="file" accept=".step,.stp,.iges,.igs,.brep,.stl,.obj,.glb" disabled={!!cadLoading[selected.id]} onChange={event => { const file = event.target.files?.[0]; if (file) onLocalCad(selected, file); event.target.value = ''; }} /></label>
+        <label className="cad-upload"><Upload size={14} /> CAD 파일 직접 가져오기 <input type="file" accept=".step,.stp,.iges,.igs,.brep,.stl,.obj,.glb,.wrl,.vrml" disabled={!!cadLoading[selected.id]} onChange={event => { const file = event.target.files?.[0]; if (file) onLocalCad(selected, file); event.target.value = ''; }} /></label>
         {cadLoading[selected.id] && <p className="micro-help">3D CAD 변환 중…</p>}
         {cadAssets[selected.id] && <><p className="micro-help">선택: {cadAssets[selected.id].label}</p><p className="micro-help">외형: {cadAssets[selected.id].dimensions.map(n => n.toFixed(1)).join(' × ')} mm · 원본 좌표 기준</p><p className="micro-help">원본 CAD 좌표축 기준으로 장착 축과 패널 밖 돌출량을 조정하세요.</p><select className="cad-select" value={cadAssets[selected.id].axis} onChange={event => onAdjustCad(selected.id, { axis: event.target.value })}>{['+x','-x','+y','-y','+z','-z'].map(axis => <option key={axis} value={axis}>패널 바깥 방향: {axis}</option>)}</select><div className="two-fields"><NumberField label="바깥 돌출 mm" value={cadAssets[selected.id].outside} min={-60} max={60} onCommit={outside => onAdjustCad(selected.id,{outside})} /><NumberField label="가로 보정 mm" value={cadAssets[selected.id].offsetX} min={-60} max={60} onCommit={offsetX => onAdjustCad(selected.id,{offsetX})} /><NumberField label="세로 보정 mm" value={cadAssets[selected.id].offsetZ} min={-60} max={60} onCommit={offsetZ => onAdjustCad(selected.id,{offsetZ})} /></div><button type="button" onClick={() => onRemoveCad(selected.id)}>CAD 모델 연결 해제</button></>}
       </div>
@@ -637,12 +637,15 @@ export default function App() {
   useEffect(() => {
     for (const part of parts) {
       const id = part.type === 'potentiometer' ? 'alpha-rv16af-41-15r1'
-        : part.type === 'footswitch' ? 'alpha-sf17020' : null;
-      if (!id || cadAutoRequested.current.has(part.id)) continue;
-      cadAutoRequested.current.add(part.id);
+        : part.type === 'footswitch' ? 'alpha-sf17020'
+        : part.type === 'audioJack' && part.jackType === 'box-amphenol' ? 'amphenol-acjs-mhom'
+        : part.type === 'audioJack' && part.jackType === 'turtle-pj609ba' ? 'hooya-pj609ba' : null;
+      const requestKey = part.id + ':' + id;
+      if (!id || cadAutoRequested.current.has(requestKey)) continue;
+      cadAutoRequested.current.add(requestKey);
       setCadLoading(previous => ({ ...previous, [part.id]: true }));
       loadCatalogCad(part.type, id)
-        .then(asset => setCadAssets(previous => previous[part.id] ? previous : { ...previous, [part.id]: asset }))
+        .then(asset => setCadAssets(previous => previous[part.id]?.id === 'local' ? previous : { ...previous, [part.id]: asset }))
         .catch(error => setNotification({ text: '원본 CAD 다운로드 실패 (' + part.id + '): ' + error.message, tone: 'error' }))
         .finally(() => setCadLoading(previous => ({ ...previous, [part.id]: false })));
     }
@@ -718,7 +721,8 @@ export default function App() {
   };
   const addPart = (type) => {
     const meta = COMPONENTS[type];
-    const newPart = findOpenSpot({ id: idGen(), type, ...(type === 'audioJack' ? { jackType: 'box' } : {}), face: activeFace, u: 0, v: 0, hole: meta.hole, keepout: meta.keepout }, parts, settings);
+    const spec = type === 'audioJack' ? JACK_VARIANTS['box-amphenol'] : null;
+    const newPart = findOpenSpot({ id: idGen(), type, ...(spec ? { jackType: spec.id } : {}), face: activeFace, u: 0, v: 0, hole: spec?.hole ?? meta.hole, keepout: spec?.keepout ?? meta.keepout }, parts, settings);
     setParts(list => [...list, newPart]);
     selectPart(newPart.id);
     notify(`${meta.label} 추가됨 · ${FACE_LABELS[activeFace]}`);

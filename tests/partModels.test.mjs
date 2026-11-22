@@ -50,3 +50,15 @@ test('jack kinds retain distinct hole parameters but provide no fake 3D models',
 test('default layout still satisfies placement spacing rules', () => {
   assert.deepEqual(layoutIssues(DEFAULT_PARTS,DEFAULT_SETTINGS),[]);
 });
+
+test('both third-party jack models have direct public CAD sources and distinct variants', () => {
+  const box = CAD_CATALOG.audioJack.find(item=>item.id==='amphenol-acjs-mhom');
+  const turtle = CAD_CATALOG.audioJack.find(item=>item.id==='hooya-pj609ba');
+  assert.equal(box.jackType, 'box-amphenol');
+  assert.equal(turtle.jackType, 'turtle-pj609ba');
+  assert.ok(box.url.endsWith('/ACJS-MHOM.stp'));
+  assert.ok(turtle.url.endsWith('/jack_6.35mm_female.wrl'));
+  assert.equal(turtle.axis, '+y');
+  assert.equal(DEFAULT_PARTS.find(p=>p.id==='audio-1').jackType, 'box-amphenol');
+  assert.equal(DEFAULT_PARTS.find(p=>p.id==='audio-2').jackType, 'turtle-pj609ba');
+});
