@@ -9,7 +9,7 @@ export const JACK_VARIANTS = Object.freeze({
   }),
   'box-amphenol': Object.freeze({
     id: 'box-amphenol', label: '박스잭 · Amphenol ACJS-MHOM (실제 STEP)',
-    hole: 10, keepout: 22,
+    hole: 10, keepout: 20,
     source: 'https://github.com/whbeers/noise_floor/blob/master/hardware/noise_floor.pretty/ACJS-MHOM.stp',
     note: '밀폐형 6.35mm 스테레오 Amphenol ACJS-MHOM. PJ-612A와 다른 제품이며 홀 Ø10mm는 시제품 확인용 참고값입니다.',
   }),
@@ -21,7 +21,7 @@ export const JACK_VARIANTS = Object.freeze({
   }),
   'turtle-pj609ba': Object.freeze({
     id: 'turtle-pj609ba', label: '거북잭 · HOOYA PJ-609BA 6핀 (실제 VRML)',
-    hole: 11.2, keepout: 22,
+    hole: 11.2, keepout: 20,
     source: 'https://github.com/dvhx/perfect-pedal-layout/blob/master/kicad/footprints/wrl/jack_6.35mm_female.wrl',
     note: '실제 이펙터 PCB의 HOOYA PJ-609BA 6핀 6.35mm 오디오 잭 원본. RPJ-303과 다른 모델입니다. 홀 Ø는 실물 도면으로 확인하세요.',
   }),
