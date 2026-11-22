@@ -37,7 +37,7 @@ test('the 16mm RV16 potentiometer points to a STEP source, not a 9mm substitute'
   assert.match(pot.name,/\.step$/);
 });
 test('jack kinds retain distinct hole parameters but provide no fake 3D models', () => {
-  assert.equal(Object.keys(JACK_VARIANTS).length,2);
+  assert.equal(Object.keys(JACK_VARIANTS).length,4);
   const base={id:'jack',type:'audioJack',face:'left',u:0,v:0};
   const box=setJackVariant(base,'box');
   const turtle=setJackVariant(base,'turtle');
