@@ -25,7 +25,11 @@ export const CAD_CATALOG = Object.freeze({
     name: 'ACJS-MHOM.stp',
     url: ROOT + 'ACJS-MHOM.stp',
     axis: '+z',
-    outside: 5,
+    // STEP cylindrical surfaces place the connector and nut axis at X=Y=0,
+    // with the outer washer/nut at Z=0 (not at the bounding-box centre).
+    mountPoint: [0, 0, 0],
+    outside: 8.7,
+    fallbackUrl: 'https://cdn.jsdelivr.net/gh/whbeers/noise_floor@master/hardware/noise_floor.pretty/ACJS-MHOM.stp',
     note: 'Amphenol 6.35mm closed plastic housing and threaded metal bushing; original external STEP. This is NOT PJ-612A.',
   }, {
     id: 'hooya-pj609ba',
@@ -42,6 +46,9 @@ export const CAD_CATALOG = Object.freeze({
     name: 'th-potentiometer-rv16af-41-15r1.step',
     url: 'https://raw.githubusercontent.com/ygn-effects/library-eda-3d-models/main/electromechanicals/potentiometers/th-potentiometer-rv16af-41-15r1/th-potentiometer-rv16af-41-15r1.step',
     axis: '+z',
+    // The actual shaft cylinder is centred at X=0,Y=0, extends to Z=24.1;
+    // its 15 mm exposed shaft defines a panel reference plane at Z=9.1.
+    mountPoint: [0, 0, 9.1],
     outside: 15,
     note: 'YGN Effects 공개 CAD: FreeCAD 원본+STEP, Alpha RV16AF-41-15R1 PCB 타입. CC0로 공개된 제품별 3D 모델입니다.',
   }, {
@@ -191,16 +198,28 @@ function readyAsset(group, id, label, config = {}) {
     dimensions: [size.x, size.y, size.z],
     url: config.url || null,
     note: config.note || '',
+    mountPoint: Array.isArray(config.mountPoint) ? [...config.mountPoint] : null,
   };
 }
 export async function loadCatalogCad(type, id) {
   const item = (CAD_CATALOG[type] || []).find(entry => entry.id === id);
   if (!item) throw new Error('CAD 목록에서 모델을 찾을 수 없습니다.');
   if (!urlCache.has(item.url)) {
-    const task = fetch(item.url).then(response => {
-      if (!response.ok) throw new Error('원본 CAD 요청 실패 (' + response.status + ')');
-      return response.arrayBuffer();
-    }).then(buffer => importCadBuffer(buffer, item.name));
+    const task = (async () => {
+      let primaryError = null;
+      for (const source of [item.url, item.fallbackUrl].filter(Boolean)) {
+        try {
+          const response = await fetch(source);
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          const buffer = await response.arrayBuffer();
+          if (!buffer.byteLength) throw new Error('빈 CAD 파일');
+          return await importCadBuffer(buffer, item.name);
+        } catch (error) {
+          primaryError = error;
+        }
+      }
+      throw new Error('CAD 파일 다운로드 또는 변환 실패: ' + (primaryError?.message || '원인 불명'));
+    })();
     urlCache.set(item.url, task);
     task.catch(() => urlCache.delete(item.url));
   }
@@ -220,8 +239,21 @@ export function makeMountedCadPart(part, preset, wall, asset) {
   transform.quaternion.setFromUnitVectors(axisDirections[asset.axis] || axisDirections['+z'], new THREE.Vector3(0, 1, 0));
   transform.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(transform);
-  const center = bounds.getCenter(new THREE.Vector3());
-  transform.position.set(-center.x + (asset.offsetX || 0), asset.outside - bounds.max.y + (asset.offsetY || 0), -center.z + (asset.offsetZ || 0));
+  // Product CAD has an explicit mounting/shaft origin. Never centre its
+  // entire AABB: asymmetric solder lugs and housings shift the box centre
+  // away from the actual panel hole axis.
+  if (Array.isArray(asset.mountPoint) && asset.mountPoint.length === 3) {
+    const mount = new THREE.Vector3(...asset.mountPoint).applyQuaternion(transform.quaternion);
+    const defaultOutside = bounds.max.y - mount.y;
+    transform.position.set(
+      -mount.x + (asset.offsetX || 0),
+      -mount.y + ((asset.outside ?? defaultOutside) - defaultOutside) + (asset.offsetY || 0),
+      -mount.z + (asset.offsetZ || 0),
+    );
+  } else {
+    const center = bounds.getCenter(new THREE.Vector3());
+    transform.position.set(-center.x + (asset.offsetX || 0), asset.outside - bounds.max.y + (asset.offsetY || 0), -center.z + (asset.offsetZ || 0));
+  }
   holder.add(transform);
   const world = partWorld(part, preset, wall, wall / 2);
   holder.position.set(...world.position);
