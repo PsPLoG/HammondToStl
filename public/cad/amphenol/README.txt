@@ -1,0 +1,1 @@
+Amphenol ACJS-MHOM CAD (STEP)\n\nUnmodified source: https://github.com/whbeers/noise_floor/blob/master/hardware/noise_floor.pretty/ACJS-MHOM.stp\nOriginal repository: whbeers/noise_floor (CC0-1.0). The file is the published third-party CAD, not a PEDALFORM-generated approximation. Check the specific purchased component and printed panel fit before fabrication.\n
