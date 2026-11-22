@@ -139,9 +139,9 @@ export function partWorld(part, preset, wall, offset = 0) {
   switch (part.face) {
     case 'top': return { position: [part.u, h - wall / 2 + offset, part.v], rotation: [0, 0, 0] };
     case 'front': return { position: [part.u, h / 2 - part.v, l / 2 - wall / 2 + offset], rotation: [Math.PI / 2, 0, 0] };
-    case 'back': return { position: [part.u, h / 2 - part.v, -l / 2 + wall / 2 - offset], rotation: [Math.PI / 2, 0, 0] };
+    case 'back': return { position: [part.u, h / 2 - part.v, -l / 2 + wall / 2 - offset], rotation: [-Math.PI / 2, 0, 0] };
     case 'left': return { position: [-w / 2 + wall / 2 - offset, h / 2 - part.v, part.u], rotation: [0, 0, Math.PI / 2] };
-    case 'right': return { position: [w / 2 - wall / 2 + offset, h / 2 - part.v, part.u], rotation: [0, 0, Math.PI / 2] };
+    case 'right': return { position: [w / 2 - wall / 2 + offset, h / 2 - part.v, part.u], rotation: [0, 0, -Math.PI / 2] };
     default: throw new Error(`Unknown face: ${part.face}`);
   }
 }

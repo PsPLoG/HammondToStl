@@ -201,7 +201,7 @@ export function makeMountedCadPart(part, preset, wall, asset) {
   const world = partWorld(part, preset, wall, wall / 2);
   holder.position.set(...world.position);
   holder.rotation.set(...world.rotation);
-  if (part.face === 'back') holder.rotation.x = -Math.PI / 2;
+  // partWorld supplies the outward normal for each of the five faces.
   holder.userData.linkedCad = true;
   return holder;
 }

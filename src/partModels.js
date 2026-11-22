@@ -106,8 +106,7 @@ export function makePartReference(part, preset, wall) {
   const transform = partWorld(part, preset, wall, wall / 2);
   root.position.set(...transform.position);
   root.rotation.set(...transform.rotation);
-  if (part.face === 'back') root.rotation.x = -Math.PI / 2;
-  // partWorld already orients left/right panel normals correctly.
+  // partWorld supplies the outward normal for each of the five faces.
   return root;
 }
 export function partBoardCollisions(parts, boards, preset, wall) {
