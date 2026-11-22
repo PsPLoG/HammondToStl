@@ -663,6 +663,7 @@ export default function App() {
   // Autoload only exact, third-party STEP files. If a real CAD download fails,
   // keep the component hidden rather than rendering an invented placeholder.
   const cadAutoRequested = useRef(new Set());
+  const activeAutoCadRequest = useRef(new Map());
   useEffect(() => {
     for (const part of parts) {
       const id = part.type === 'potentiometer' ? 'alpha-rv16af-41-15r1'
@@ -670,19 +671,26 @@ export default function App() {
         : part.type === 'audioJack' && part.jackType === 'box-amphenol' ? 'amphenol-acjs-mhom'
         : part.type === 'audioJack' && part.jackType === 'turtle-pj609ba' ? 'hooya-pj609ba' : null;
       const requestKey = part.id + ':' + id;
+      // A changed model selection invalidates an earlier in-flight download.
+      activeAutoCadRequest.current.set(part.id, requestKey);
       if (!id || cadAutoRequested.current.has(requestKey)) continue;
       cadAutoRequested.current.add(requestKey);
       setCadLoading(previous => ({ ...previous, [part.id]: true }));
       loadCatalogCad(part.type, id)
         .then(asset => {
-          setCadAssets(previous => previous[part.id]?.id === 'local' ? previous : { ...previous, [part.id]: asset });
+          if (activeAutoCadRequest.current.get(part.id) !== requestKey) return;
+          setCadAssets(previous => previous[part.id] && previous[part.id].id !== id ? previous : { ...previous, [part.id]: asset });
           setCadErrors(previous => ({ ...previous, [part.id]: null }));
         })
         .catch(error => {
+          if (activeAutoCadRequest.current.get(part.id) !== requestKey) return;
           setCadErrors(previous => ({ ...previous, [part.id]: error.message }));
           setNotification({ text: '원본 CAD 다운로드 실패 (' + part.id + '): ' + error.message, tone: 'error' });
         })
-        .finally(() => setCadLoading(previous => ({ ...previous, [part.id]: false })));
+        .finally(() => {
+          if (activeAutoCadRequest.current.get(part.id) === requestKey)
+            setCadLoading(previous => ({ ...previous, [part.id]: false }));
+        });
     }
   }, [parts]);
 
