@@ -360,7 +360,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
       </Canvas>
     </div>
     {model?.error && <div className="preview-error"><AlertTriangle size={15} /> {model.error}</div>}
-    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showParts ? '원본 CAD: STEP/GLB · 근사 부품모형 없음' : '부품 모델 숨김'}</span></div>
+    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showParts ? '실제 CAD ' + parts.filter(p => p.type === 'led' || !!cadAssets[p.id]).length + '/' + parts.length + '개 표시 · 내부 보기로 케이스 안쪽 확인' : '부품 모델 숨김'}</span></div>
   </div>;
 }
 
@@ -511,7 +511,7 @@ function TopMenu({ settings, setSettings, face, onAdd, boards, selectedBoardId, 
   </nav>;
 }
 
-function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, onAdjustCad, cadLoading }) {
+function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, onAdjustCad, cadLoading, cadErrors }) {
   const d = selected ? edgeDistances(selected, settings) : null;
   const next = selected ? nearestNeighbor(selected, parts) : null;
   const issue = selected ? issueForPart(selected, parts, settings) : null;
@@ -536,6 +536,11 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         <NumberField label="간섭 영역 Ø" value={selected.keepout} min={selected.hole} max={45} onCommit={keepout => onUpdate(selected.id, { keepout })} />
       </div><p className="micro-help">간섭 영역은 너트·와셔·부품 몸체가 차지하는 공간입니다.</p></div>
       <div className="inspector-section"><h4><Box size={15} /> 원본 3D CAD 모델만 표시</h4>
+        {selected.type === 'audioJack' && (selected.jackType === 'box' || selected.jackType === 'turtle') && !cadAssets[selected.id] &&
+          <div className="cad-legacy-hint"><p className="micro-help">이 부품은 정확한 CAD가 연결되지 않아 3D에서 숨겨져 있습니다. 아래 버튼을 누르면 <b>다른 제품임을 명시한 실제 CAD 모델</b>로 전환할 수 있습니다.</p>
+          <button type="button" onClick={() => { onUpdate(selected.id, setJackVariant(selected, selected.jackType === 'box' ? 'box-amphenol' : 'turtle-pj609ba')); onRemoveCad(selected.id); }}>
+            {selected.jackType === 'box' ? 'Amphenol 실물 박스잭 STEP 사용' : 'HOOYA 실물 6핀 잭 VRML 사용'}
+          </button></div>}
         <p className="micro-help">직접 만든 근사 모형은 사용하지 않습니다. STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB, WRL/VRML 원본만 불러옵니다.</p>
         {!cadAssets[selected.id] && selected.type !== 'led' && <p className="micro-help">3D CAD 미연결: 부품 모형을 표시하지 않습니다. (홀은 그대로 표시)</p>}
         <select className="cad-select" value={cadAssets[selected.id]?.id || ''} disabled={!!cadLoading[selected.id]} onChange={event => event.target.value ? onCatalogCad(selected, event.target.value) : onRemoveCad(selected.id)}>
@@ -544,7 +549,10 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
           {(CAD_CATALOG[selected.type] || []).filter(entry => selected.type !== 'audioJack' || !entry.jackType || entry.jackType === selected.jackType).map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
         </select>
         <label className="cad-upload"><Upload size={14} /> CAD 파일 직접 가져오기 <input type="file" accept=".step,.stp,.iges,.igs,.brep,.stl,.obj,.glb,.wrl,.vrml" disabled={!!cadLoading[selected.id]} onChange={event => { const file = event.target.files?.[0]; if (file) onLocalCad(selected, file); event.target.value = ''; }} /></label>
-        {cadLoading[selected.id] && <p className="micro-help">3D CAD 변환 중…</p>}
+        {cadLoading[selected.id] && <p className="micro-help">원본 CAD 다운로드 및 3D 변환 중… (STEP은 시간이 걸릴 수 있습니다)</p>}
+        {cadErrors[selected.id] && <div className="cad-load-error" role="alert"><p className="micro-help">CAD 표시 실패: {cadErrors[selected.id]}</p>
+          {(CAD_CATALOG[selected.type] || []).filter(item => selected.type !== 'audioJack' || item.jackType === selected.jackType).slice(0,1).map(item => <button key={item.id} type="button" onClick={() => onCatalogCad(selected, item.id)}>원본 CAD 다시 불러오기</button>)}
+        </div>}
         {cadAssets[selected.id] && <><p className="micro-help">선택: {cadAssets[selected.id].label}</p><p className="micro-help">외형: {cadAssets[selected.id].dimensions.map(n => n.toFixed(1)).join(' × ')} mm · 원본 좌표 기준</p><p className="micro-help">원본 CAD 좌표축 기준으로 장착 축과 패널 밖 돌출량을 조정하세요.</p><select className="cad-select" value={cadAssets[selected.id].axis} onChange={event => onAdjustCad(selected.id, { axis: event.target.value })}>{['+x','-x','+y','-y','+z','-z'].map(axis => <option key={axis} value={axis}>패널 바깥 방향: {axis}</option>)}</select><div className="two-fields"><NumberField label="바깥 돌출 mm" value={cadAssets[selected.id].outside} min={-60} max={60} onCommit={outside => onAdjustCad(selected.id,{outside})} /><NumberField label="가로 보정 mm" value={cadAssets[selected.id].offsetX} min={-60} max={60} onCommit={offsetX => onAdjustCad(selected.id,{offsetX})} /><NumberField label="세로 보정 mm" value={cadAssets[selected.id].offsetZ} min={-60} max={60} onCommit={offsetZ => onAdjustCad(selected.id,{offsetZ})} /></div><button type="button" onClick={() => onRemoveCad(selected.id)}>CAD 모델 연결 해제</button></>}
       </div>
       <div className="inspector-section"><h4><Ruler size={15} /> 벽과의 거리 <span>EDGE CLEARANCE</span></h4>
@@ -592,6 +600,7 @@ export default function App() {
   const [boards, setBoards] = useState(() => initial.current?.boards ?? []);
   const [cadAssets, setCadAssets] = useState({});
   const [cadLoading, setCadLoading] = useState({});
+  const [cadErrors, setCadErrors] = useState({});
   const [selectedBoardId, setSelectedBoardId] = useState(null);
   const [activeFace, setActiveFace] = useState('top');
   const [selectedId, setSelectedId] = useState('foot-1');
@@ -618,17 +627,36 @@ export default function App() {
   const notify = (text, tone = 'info') => setNotification({ text, tone });
   const onCatalogCad = async (part, id) => {
     setCadLoading(previous => ({...previous, [part.id]: true}));
-    try { const asset = await loadCatalogCad(part.type, id); setCadAssets(previous => ({...previous, [part.id]: asset})); notify('CAD 로드 성공: ' + asset.label); }
-    catch(error) { notify('CAD 로드 실패: ' + error.message, 'error'); }
-    finally { setCadLoading(previous => ({...previous, [part.id]: false})); }
+    setCadErrors(previous => ({...previous, [part.id]: null}));
+    try {
+      const asset = await loadCatalogCad(part.type, id);
+      setCadAssets(previous => ({...previous, [part.id]: asset}));
+      notify('CAD 로드 성공: ' + asset.label);
+    } catch(error) {
+      setCadErrors(previous => ({...previous, [part.id]: error.message}));
+      notify('CAD 로드 실패: ' + error.message, 'error');
+    } finally {
+      setCadLoading(previous => ({...previous, [part.id]: false}));
+    }
   };
   const onLocalCad = async (part, file) => {
     setCadLoading(previous => ({...previous, [part.id]: true}));
-    try { const asset = await loadLocalCad(file); setCadAssets(previous => ({...previous, [part.id]: asset})); notify('개인 CAD 로드 성공: ' + file.name); }
-    catch(error) { notify('CAD 로드 실패: ' + error.message, 'error'); }
-    finally { setCadLoading(previous => ({...previous, [part.id]: false})); }
+    setCadErrors(previous => ({...previous, [part.id]: null}));
+    try {
+      const asset = await loadLocalCad(file);
+      setCadAssets(previous => ({...previous, [part.id]: asset}));
+      notify('개인 CAD 로드 성공: ' + file.name);
+    } catch(error) {
+      setCadErrors(previous => ({...previous, [part.id]: error.message}));
+      notify('CAD 로드 실패: ' + error.message, 'error');
+    } finally {
+      setCadLoading(previous => ({...previous, [part.id]: false}));
+    }
   };
-  const onRemoveCad = id => setCadAssets(previous => { const next={...previous}; delete next[id]; return next; });
+  const onRemoveCad = id => {
+    setCadAssets(previous => { const next={...previous}; delete next[id]; return next; });
+    setCadErrors(previous => ({...previous, [id]: null}));
+  };
   const onAdjustCad = (id, patch) => setCadAssets(previous => previous[id] ? ({...previous,[id]:{...previous[id],...patch}}) : previous);
 
   // Autoload only exact, third-party STEP files. If a real CAD download fails,
@@ -645,8 +673,14 @@ export default function App() {
       cadAutoRequested.current.add(requestKey);
       setCadLoading(previous => ({ ...previous, [part.id]: true }));
       loadCatalogCad(part.type, id)
-        .then(asset => setCadAssets(previous => previous[part.id]?.id === 'local' ? previous : { ...previous, [part.id]: asset }))
-        .catch(error => setNotification({ text: '원본 CAD 다운로드 실패 (' + part.id + '): ' + error.message, tone: 'error' }))
+        .then(asset => {
+          setCadAssets(previous => previous[part.id]?.id === 'local' ? previous : { ...previous, [part.id]: asset });
+          setCadErrors(previous => ({ ...previous, [part.id]: null }));
+        })
+        .catch(error => {
+          setCadErrors(previous => ({ ...previous, [part.id]: error.message }));
+          setNotification({ text: '원본 CAD 다운로드 실패 (' + part.id + '): ' + error.message, tone: 'error' });
+        })
         .finally(() => setCadLoading(previous => ({ ...previous, [part.id]: false })));
     }
   }, [parts]);
@@ -889,7 +923,7 @@ export default function App() {
         {notification && <div className={`toast ${notification.tone}`} role="status"><span>{notification.tone === 'error' ? <AlertTriangle size={17}/> : <CircleCheck size={17}/>}</span>{notification.text}<button onClick={() => setNotification(null)} aria-label="알림 닫기"><X size={15}/></button></div>}
       </main>
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
-        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} onAdjustCad={onAdjustCad} cadLoading={cadLoading} />}
+        <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} onAdjustCad={onAdjustCad} cadLoading={cadLoading} cadErrors={cadErrors} />}
     </div>
     <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.2 / CORNER FILL DEBUG</span></footer>
   </div>;
