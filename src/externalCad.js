@@ -23,7 +23,8 @@ export const CAD_CATALOG = Object.freeze({
     jackType: 'box-amphenol',
     label: '박스형 Amphenol ACJS-MHOM · 실물 STEP (PJ-612A 아님)',
     name: 'ACJS-MHOM.stp',
-    url: ROOT + 'ACJS-MHOM.stp',
+    // Bundled unmodified CC0 STEP prevents GitHub raw CORS/CDN outages.
+    url: './cad/amphenol/ACJS-MHOM.stp',
     axis: '+z',
     // STEP cylindrical surfaces place the connector and nut axis at X=Y=0,
     // with the outer washer/nut at Z=0 (not at the bounding-box centre).
