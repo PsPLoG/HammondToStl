@@ -27,13 +27,21 @@ export const CAD_CATALOG = Object.freeze({
     note: 'Specific 1/4-inch stereo jack, not Cliff CL1227G.',
   }],
   potentiometer: [{
+    id: 'alpha-rv16af-41-15r1',
+    label: 'Alpha RV16AF-41-15R1 16mm (공개 FreeCAD STEP)',
+    name: 'th-potentiometer-rv16af-41-15r1.step',
+    url: 'https://raw.githubusercontent.com/ygn-effects/library-eda-3d-models/main/electromechanicals/potentiometers/th-potentiometer-rv16af-41-15r1/th-potentiometer-rv16af-41-15r1.step',
+    axis: '+z',
+    outside: 15,
+    note: 'YGN Effects 공개 CAD: FreeCAD 원본+STEP, Alpha RV16AF-41-15R1 PCB 타입. CC0로 공개된 제품별 3D 모델입니다.',
+  }, {
     id: 'alpha-rd901f',
-    label: 'Alpha RD901F 9 mm (STEP — RV16 아님)',
+    label: 'Alpha RD901F 9mm (기본 16mm 모델과 다름)',
     name: 'RD901F-40-15R1.step',
     url: ROOT + 'RD901F-40-15R1.step',
     axis: '+z',
     outside: 14,
-    note: '9 mm PCB potentiometer, different from the default RV16-type 16 mm pot.',
+    note: '9mm PCB 포텐셔미터의 실제 STEP. RV16 16mm 제품에는 적용하지 마세요.',
   }],
   toggle: [{
     id: 'spdt-switch',
