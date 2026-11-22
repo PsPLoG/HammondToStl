@@ -4,6 +4,13 @@
 
 > **상태: 기능형 프로토타입 / 치수 검증 필요.** 실제 Hammond 다이캐스트 케이스를 정확히 재현하거나, 특정 부품·프린터에서의 기계적 호환성을 보증하지 않습니다. 제품 제작 전 측정과 테스트 출력이 필요합니다.
 
+## v0.4.3 수정: 잭 3D 모델 표시와 포텐셔미터 회전
+
+- 기본 박스잭 Amphenol ACJS-MHOM은 프로젝트에 포함된 실제 STEP을 로드합니다. STEP 변환 엔진의 첫 번째 CDN 접속이 실패하면 두 번째 CDN으로 재시도합니다.
+- 기본 거북잭 HOOYA PJ-609BA는 원본 VRML을 함께 보관하고, 원본 삼각면 그대로 변환한 정적 메시를 로컬에서 표시해 원격 다운로드와 VRML 런타임 파서 의존성을 없앴습니다. 모델 저작권·라이선스 정보는 `public/cad/hooya/`를 참고하세요.
+- 기본 Alpha RV16AF-41-15R1 포텐셔미터 CAD는 샤프트의 홀 중심을 유지한 채 장착축을 기준으로 180° 회전합니다. 선택한 부품의 속성에서 회전 각도를 조정할 수도 있습니다.
+- **실제 부품 주의:** 이 Amphenol과 HOOYA 참조 모델은 각각 PJ-612A와 RPJ-303이 아닙니다. 정확한 실물 모델이 필요한 경우 별도 CAD 파일을 연결하세요.
+
 ## v0.4.2 확인 기능: 3D 코너 보강부 강조 및 로딩 오류 표시
 
 - **실제 CSG 메쉬 테스트:** 1590A·1590B·125B·1590BB의 네 코너마다 원기둥 바로 밖과 벽 사이 점을 수직 레이캐스트하여, 본체 메쉬가 하판면(Y=0)까지 채워져 있는지 확인합니다. 기존 좌표 기반 테스트에 추가한 실제 형상 검사입니다.
@@ -180,9 +187,9 @@ tests/
 - 16mm potentiometers now automatically fetch an actual **Alpha RV16AF-41-15R1 STEP** created by the open source YGN Effects library (source STEP and FreeCAD project): https://github.com/ygn-effects/library-eda-3d-models/tree/main/electromechanicals/potentiometers/th-potentiometer-rv16af-41-15r1 . YGN Effects publishes the 3D model library under CC0 1.0.
 - 3PDT footswitches automatically load an external **Alpha SF17020F-0302-21R-L STEP** via a public repository. This is a specific third-party model, not certified for other 3PDT switches.
 - The original **Amphenol ACJS-MHOM STEP** is bundled unmodified at `public/cad/amphenol/ACJS-MHOM.stp` to avoid cross-origin downloads (source: https://github.com/whbeers/noise_floor/tree/master/hardware/noise_floor.pretty ; source repository CC0-1.0, see bundled license). The part is **not** PJ-612A.
-- The actual **HOOYA PJ-609BA 6-pin VRML** from https://github.com/dvhx/perfect-pedal-layout/blob/master/kicad/footprints/wrl/jack_6.35mm_female.wrl is loaded as a separate explicitly named variant; it is **not** RPJ-303.
+- The actual **HOOYA PJ-609BA 6-pin VRML** from https://github.com/dvhx/perfect-pedal-layout/blob/master/kicad/footprints/wrl/jack_6.35mm_female.wrl is bundled with its original GPL-3.0 source at `public/cad/hooya/` and displayed from the original indexed triangles in `src/cad/hooyaPj609ba.json` (no remote fetch or primitive placeholders); it is **not** RPJ-303.
 - The original **PJ-612A** closed jack has a CAD listing at https://wwwcmnip.3dcontentcentral.com/download-model.aspx?catalogid=171&id=3045911 (login required). **RPJ-303** exact downloadable CAD remains unverified. These two slots do **not** silently switch to the Amphenol/HOOYA sources.
-- Mount points for the Alpha RV16 and Amphenol jack use their **actual shaft/bushing axes**, not asymmetric whole-model bounding box centres. The preview has an x-ray button for viewing hardware inside the enclosure. Older locally saved generic jack projects require an explicit switch to a CAD-backed named variant. Download/convert failures are visible in the inspector with a retry button.
+- Mount points for the Alpha RV16 and Amphenol jack use their **actual shaft/bushing axes**, not asymmetric whole-model bounding box centres. The Alpha RV16 preview is rotated 180° about that shaft axis by default, with an adjustable panel-axis orientation control. The preview has an x-ray button for viewing hardware inside the enclosure. Older locally saved generic jack projects require an explicit switch to a CAD-backed named variant. Download/convert failures are visible in the inspector with a retry button.
 - Only the physical model a user selects is shown; 3D preview hardware is never included in enclosure STL/3MF exports.
 - The 3D model icon toggles hardware visibility. PCB/hardware bounding-box intersection warnings are **conservative preflight warnings**, not exact solid-on-solid CAD interference analysis.
 - KiCad's `Connector_BarrelJack` CAD is a **PCB-mount** jack, not a substitute for the default **panel-mount** pedal jack; it is intentionally not mislabeled as such.
