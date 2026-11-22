@@ -360,7 +360,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
       </Canvas>
     </div>
     {model?.error && <div className="preview-error"><AlertTriangle size={15} /> {model.error}</div>}
-    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showParts ? '5mm LED: KiCad CAD · 다른 부품: 근사 참고 모델' : '부품 모델 숨김'}</span></div>
+    <div className="preview-bottom"><span>드래그로 회전 · 휠로 확대</span><span>{showParts ? '원본 CAD: STEP/GLB · 근사 부품모형 없음' : '부품 모델 숨김'}</span></div>
   </div>;
 }
 
@@ -524,20 +524,22 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         <NumberField label="Y / V" value={selected.v} onCommit={v => onUpdate(selected.id, { v })} />
       </div><p className="micro-help">각 면 중앙이 (0, 0)입니다. mm 단위로 조정됩니다.</p></div>
       {selected.type === 'audioJack' && <div className="inspector-section"><h4><Box size={15} /> 인풋/아웃풋 잭 타입</h4>
-        <select className="cad-select" value={jackVariant(selected).id} onChange={event => onUpdate(selected.id, setJackVariant(selected, event.target.value))}>
+        <select className="cad-select" value={jackVariant(selected).id} onChange={event => { onUpdate(selected.id, setJackVariant(selected, event.target.value)); onRemoveCad(selected.id); }}>
           {Object.values(JACK_VARIANTS).map(variant => <option key={variant.id} value={variant.id}>{variant.label}</option>)}
         </select>
         <p className="micro-help">{jackVariant(selected).note}</p>
+        <a href={jackVariant(selected).source} target="_blank" rel="noopener noreferrer" className="micro-help">제품 CAD / 원본 자료 확인하기 ↗</a>
         <p className="micro-help">타입 변경 시 관통 홀 Ø와 기본 간섭 범위가 함께 변경됩니다. 개인 실측 후 수정할 수 있습니다.</p>
       </div>}
       <div className="inspector-section"><h4><CircleDot size={15} /> 가공 지름</h4><div className="two-fields">
         <NumberField label="관통 홀 Ø" value={selected.hole} min={1} max={32} onCommit={hole => onUpdate(selected.id, { hole, keepout: Math.max(hole, selected.keepout) })} />
         <NumberField label="간섭 영역 Ø" value={selected.keepout} min={selected.hole} max={45} onCommit={keepout => onUpdate(selected.id, { keepout })} />
       </div><p className="micro-help">간섭 영역은 너트·와셔·부품 몸체가 차지하는 공간입니다.</p></div>
-      <div className="inspector-section"><h4><Box size={15} /> 실제 3D CAD 모델</h4>
-        <p className="micro-help">STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB · 파일은 내 브라우저에서 처리합니다. 외부 모델은 원본 파일을 직접 로드합니다.</p>
+      <div className="inspector-section"><h4><Box size={15} /> 원본 3D CAD 모델만 표시</h4>
+        <p className="micro-help">직접 만든 근사 모형은 사용하지 않습니다. STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB 원본만 불러옵니다.</p>
+        {!cadAssets[selected.id] && selected.type !== 'led' && <p className="micro-help">3D CAD 미연결: 부품 모형을 표시하지 않습니다. (홀은 그대로 표시)</p>}
         <select className="cad-select" value={cadAssets[selected.id]?.id || ''} disabled={!!cadLoading[selected.id]} onChange={event => event.target.value ? onCatalogCad(selected, event.target.value) : onRemoveCad(selected.id)}>
-          <option value="">참고용 근사 모델</option>
+          <option value="">CAD 없음 — 3D 모형 숨김</option>
           {cadAssets[selected.id]?.id === 'local' && <option value="local">{cadAssets[selected.id].label}</option>}
           {(CAD_CATALOG[selected.type] || []).map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}
         </select>
@@ -628,6 +630,23 @@ export default function App() {
   };
   const onRemoveCad = id => setCadAssets(previous => { const next={...previous}; delete next[id]; return next; });
   const onAdjustCad = (id, patch) => setCadAssets(previous => previous[id] ? ({...previous,[id]:{...previous[id],...patch}}) : previous);
+
+  // Autoload only exact, third-party STEP files. If a real CAD download fails,
+  // keep the component hidden rather than rendering an invented placeholder.
+  const cadAutoRequested = useRef(new Set());
+  useEffect(() => {
+    for (const part of parts) {
+      const id = part.type === 'potentiometer' ? 'alpha-rv16af-41-15r1'
+        : part.type === 'footswitch' ? 'alpha-sf17020' : null;
+      if (!id || cadAutoRequested.current.has(part.id)) continue;
+      cadAutoRequested.current.add(part.id);
+      setCadLoading(previous => ({ ...previous, [part.id]: true }));
+      loadCatalogCad(part.type, id)
+        .then(asset => setCadAssets(previous => previous[part.id] ? previous : { ...previous, [part.id]: asset }))
+        .catch(error => setNotification({ text: '원본 CAD 다운로드 실패 (' + part.id + '): ' + error.message, tone: 'error' }))
+        .finally(() => setCadLoading(previous => ({ ...previous, [part.id]: false })));
+    }
+  }, [parts]);
 
   // Keep edit operations entirely local; no project data goes to a server.
   useEffect(() => {
