@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
 import { ENCLOSURES, DEFAULT_PARTS, DEFAULT_SETTINGS } from '../src/presets.js';
 import { partWorld, layoutIssues } from '../src/layout.js';
 import { JACK_VARIANTS, jackVariant, setJackVariant } from '../src/jackVariants.js';
@@ -103,4 +104,15 @@ test('Amphenol jack bushing origin aligns with the side-panel hole', () => {
   }
   body.geometry.dispose();
   body.material.dispose();
+});
+
+test('the box jack is bundled as the complete original 1.8MB STEP rather than an empty file or Git LFS pointer', () => {
+  const cad=readFileSync(new URL('../public/cad/amphenol/ACJS-MHOM.stp', import.meta.url),'utf8');
+  assert.ok(cad.length>1000000, 'bundled box jack CAD must be complete');
+  assert.ok(cad.startsWith('ISO-10303-21;'), 'STEP header missing');
+  assert.match(cad,/PRODUCT\('ACJS-MHOM'/);
+  assert.ok(cad.trimEnd().endsWith('END-ISO-10303-21;'));
+  const item=CAD_CATALOG.audioJack.find(p=>p.id==='amphenol-acjs-mhom');
+  assert.equal(item.url,'./cad/amphenol/ACJS-MHOM.stp');
+  assert.deepEqual(item.mountPoint,[0,0,0]);
 });
