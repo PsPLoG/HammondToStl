@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLLoader } from 'three/addons/loaders/VRMLLoader.js';
 import { partWorld } from './layout.js';
 
 // These are links to original CAD files, not copies bundled with PEDALFORM.
@@ -19,12 +20,21 @@ export const CAD_CATALOG = Object.freeze({
   }],
   audioJack: [{
     id: 'amphenol-acjs-mhom',
-    label: 'Amphenol ACJS-MHOM (별도 6핀 제품, 박스잭/거북잭과 다름)',
+    jackType: 'box-amphenol',
+    label: '박스형 Amphenol ACJS-MHOM · 실물 STEP (PJ-612A 아님)',
     name: 'ACJS-MHOM.stp',
     url: ROOT + 'ACJS-MHOM.stp',
     axis: '+z',
     outside: 5,
-    note: 'Specific 1/4-inch stereo jack, not Cliff CL1227G.',
+    note: 'Amphenol 6.35mm closed plastic housing and threaded metal bushing; original external STEP. This is NOT PJ-612A.',
+  }, {
+    id: 'hooya-pj609ba',
+    jackType: 'turtle-pj609ba',
+    label: '거북형 HOOYA PJ-609BA 6핀 · 실물 KiCad VRML (RPJ-303 아님)',
+    name: 'jack_6.35mm_female.wrl',
+    url: 'https://raw.githubusercontent.com/dvhx/perfect-pedal-layout/master/kicad/footprints/wrl/jack_6.35mm_female.wrl',
+    axis: '+y', outside: 5,
+    note: 'Public pedal PCB model of 6.35mm HOOYA PJ-609BA six-pin stereo jack. GPL-3.0 source. Not the RPJ-303 SKU.',
   }],
   potentiometer: [{
     id: 'alpha-rv16af-41-15r1',
@@ -153,11 +163,18 @@ export async function importCadBuffer(buffer, filename) {
   if (extension === 'obj') {
     return new OBJLoader().parse(new TextDecoder().decode(buffer));
   }
+  if (extension === 'wrl' || extension === 'vrml') {
+    // Source footprint rescales the raw VRML 0.3937 in KiCad, cancelling
+    // its 2.54 unit multiplier; raw coordinates are mm-sized.
+    const root = new VRMLLoader().parse(new TextDecoder().decode(buffer));
+    if (!root?.children?.length) throw new Error('VRML에서 모델을 읽지 못했습니다.');
+    return root;
+  }
   if (extension === 'glb') {
     const gltf = await new GLTFLoader().parseAsync(buffer, '');
     return gltf.scene;
   }
-  throw new Error('지원 형식: STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB');
+  throw new Error('지원 형식: STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB, WRL/VRML');
 }
 function readyAsset(group, id, label, config = {}) {
   group.updateMatrixWorld(true);
