@@ -5,7 +5,7 @@ import { ENCLOSURES, DEFAULT_PARTS, DEFAULT_SETTINGS } from '../src/presets.js';
 import { partWorld, layoutIssues } from '../src/layout.js';
 import { JACK_VARIANTS, jackVariant, setJackVariant } from '../src/jackVariants.js';
 import { makePartReference } from '../src/partModels.js';
-import { CAD_CATALOG } from '../src/externalCad.js';
+import { CAD_CATALOG, makeMountedCadPart } from '../src/externalCad.js';
 
 const preset = ENCLOSURES['1590B'];
 const wall = DEFAULT_SETTINGS.wall;
@@ -61,4 +61,46 @@ test('both third-party jack models have direct public CAD sources and distinct v
   assert.equal(turtle.axis, '+y');
   assert.equal(DEFAULT_PARTS.find(p=>p.id==='audio-1').jackType, 'box-amphenol');
   assert.equal(DEFAULT_PARTS.find(p=>p.id==='audio-2').jackType, 'turtle-pj609ba');
+});
+
+test('Alpha RV16 shaft origin aligns with drilled hole, not asymmetric full CAD bounds', () => {
+  const spec = CAD_CATALOG.potentiometer.find(item => item.id === 'alpha-rv16af-41-15r1');
+  assert.deepEqual(spec.mountPoint, [0,0,9.1]);
+  const group = new THREE.Group();
+  // Representative measured CAD extents: X -8.24..10, Y -5.6..16.25,
+  // Z -6.5..24.1, intentionally not centred on the shaft.
+  const body = new THREE.Mesh(new THREE.BoxGeometry(18.24,21.85,30.6),new THREE.MeshBasicMaterial());
+  body.position.set(.88,5.325,8.8);
+  group.add(body);
+  for(const face of ['top','left','right','front','back']){
+    const part = {id:'pot-test',type:'potentiometer',face,u:7,v:-3};
+    const asset={id:spec.id,group,axis:spec.axis,mountPoint:spec.mountPoint,outside:spec.outside,offsetX:0,offsetY:0,offsetZ:0};
+    const placed=makeMountedCadPart(part,preset,wall,asset);
+    placed.updateMatrixWorld(true);
+    const hole=new THREE.Vector3(...partWorld(part,preset,wall,wall/2).position);
+    const shaftCenter=new THREE.Vector3(...spec.mountPoint).applyMatrix4(placed.children[0].matrixWorld);
+    assert.ok(shaftCenter.distanceTo(hole)<1e-5,face+' shaft needs to meet hole centre');
+  }
+  body.geometry.dispose();
+  body.material.dispose();
+});
+test('Amphenol jack bushing origin aligns with the side-panel hole', () => {
+  const spec=CAD_CATALOG.audioJack.find(item=>item.id==='amphenol-acjs-mhom');
+  assert.deepEqual(spec.mountPoint,[0,0,0]);
+  assert.equal(spec.outside,8.7);
+  const group=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.BoxGeometry(17.325,23.866,47.1),new THREE.MeshBasicMaterial());
+  body.position.set(1.445,-1.376,-14.85);
+  group.add(body);
+  for(const face of ['left','right']){
+    const part={id:'jack-test',type:'audioJack',face,u:11,v:1};
+    const asset={id:spec.id,group,axis:spec.axis,mountPoint:spec.mountPoint,outside:spec.outside,offsetX:0,offsetY:0,offsetZ:0};
+    const placed=makeMountedCadPart(part,preset,wall,asset);
+    placed.updateMatrixWorld(true);
+    const target=new THREE.Vector3(...partWorld(part,preset,wall,wall/2).position);
+    const holeAxis=new THREE.Vector3(...spec.mountPoint).applyMatrix4(placed.children[0].matrixWorld);
+    assert.ok(holeAxis.distanceTo(target)<1e-5,face+' bushing origin must meet panel hole');
+  }
+  body.geometry.dispose();
+  body.material.dispose();
 });
