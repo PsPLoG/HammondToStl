@@ -503,3 +503,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .cad-upload input { display: none; }
 .cad-upload:focus-within { outline: 2px solid #65b7ab; }
 .cad-upload:has(input:disabled) { opacity: .5; cursor: wait; }
+
+/* Verified third-party CAD status in the component inspector */
+.cad-legacy-hint { border-left: 3px solid #9faead; padding: 8px 10px; margin: 8px 0; background: #f4f8f7; border-radius: 4px; }
+.cad-legacy-hint button, .cad-load-error button { border: 1px solid #739b99; border-radius: 7px; background: white; color: #24535a; padding: 8px 10px; margin-top: 6px; font-weight: 700; font-size: 12px; cursor: pointer; }
+.cad-legacy-hint button:hover, .cad-load-error button:hover { border-color: #316b6b; }
+.cad-load-error { padding: 8px 10px; margin: 8px 0; background: #fff5f3; border: 1px solid #ead1cd; border-radius: 7px; }
+.cad-load-error .micro-help { color: #953c36; }
