@@ -329,7 +329,7 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
   </>;
 }
 
-function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect, cadAssets }) {
+function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, onFace, computing, boards, selectedBoardId, onBoardSelect, cadAssets, onToggleXray }) {
   const [cameraKey, setCameraKey] = useState(0);
   const [wire, setWire] = useState(false);
   const [showCornerFill, setShowCornerFill] = useState(false);
@@ -339,6 +339,7 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
     <div className="preview-actions">
       <button title="카메라 초기화" onClick={() => setCameraKey(n => n+1)}><RotateCcw size={16} /></button>
       <button title="장착 부품 3D 모델 표시" aria-pressed={showParts} className={showParts ? 'active' : ''} onClick={() => setShowParts(v => !v)}><Box size={16} /></button>
+      <button title="내부 부품 보기: 케이스를 반투명으로 전환" aria-pressed={!!settings.xray} className={settings.xray ? 'active' : ''} onClick={onToggleXray}><Eye size={16} /></button>
       <button title="와이어프레임 전환" className={wire ? 'active' : ''} onClick={() => setWire(x => !x)}><Grip size={16} /></button>
       <button title="코너 보강부 강조 표시 (녹색 = 실제 CSG에 사용하는 채움 형상)" aria-pressed={showCornerFill}
         className={showCornerFill ? 'active' : ''} onClick={() => setShowCornerFill(x => !x)}><Layers3 size={16} /></button>
@@ -910,7 +911,7 @@ export default function App() {
           <section className="model-panel">
             <div className="panel-top"><div><span className="panel-index">B / 3D PREVIEW</span><h2>실시간 3D 모델</h2></div><div className="panel-top-icon"><Box size={18} /></div></div>
             <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><button onClick={() => setSettings(s => ({ ...s, xray: !s.xray }))} className={settings.xray ? 'active' : ''}><Eye size={15} /> 내부 보기</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
-            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} cadAssets={cadAssets} />
+            <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} cadAssets={cadAssets}  onToggleXray={() => setSettings(previous => ({...previous, xray: !previous.xray}))} />
             <div className="panel-footnote"><span>CSG / 실제 관통 홀 반영</span><span className="mono">MM · STL READY</span></div>
           </section>
         </div>
