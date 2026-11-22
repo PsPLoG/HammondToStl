@@ -19,7 +19,7 @@ export const CAD_CATALOG = Object.freeze({
   }],
   audioJack: [{
     id: 'amphenol-acjs-mhom',
-    label: 'Amphenol ACJS-MHOM (6.35 mm / STEP)',
+    label: 'Amphenol ACJS-MHOM (별도 6핀 제품, 박스잭/거북잭과 다름)',
     name: 'ACJS-MHOM.stp',
     url: ROOT + 'ACJS-MHOM.stp',
     axis: '+z',
