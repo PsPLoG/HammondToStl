@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { partWorld } from './layout.js';
-import ledCad from './cad/kicadLed5mm.json';
+import ledCad from './cad/kicadLed5mm.json' with { type: 'json' };
 import { jackVariant } from './jackVariants.js';
 
 // Reference envelopes, NOT manufacturer-certified CAD. Coordinates in mm.
