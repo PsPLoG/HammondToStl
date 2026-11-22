@@ -19,6 +19,7 @@ import { makePCB, sanitizePCB, movePCB, checkPCBLayout } from './pcb.js';
 import { applyKnobPreset } from './knobPresets.js';
 import { makePartReference, partBoardCollisions } from './partModels.js';
 import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, checkImportedCadBoards } from './externalCad.js';
+import { JACK_VARIANTS, jackVariant, setJackVariant } from './jackVariants.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -56,7 +57,7 @@ function sanitizeProject(json) {
     const defaultP = COMPONENTS[x.type];
     const hole = clamp(Number(x.hole) || defaultP.hole, 1, 32);
     const keepout = clamp(Number(x.keepout) || defaultP.keepout, hole, 45);
-    return { id, type: x.type, face: x.face, u: round1(Number(x.u) || 0), v: round1(Number(x.v) || 0), hole, keepout };
+    return { id, type: x.type, ...(x.type === 'audioJack' ? { jackType: x.jackType === 'turtle' ? 'turtle' : 'box' } : {}), face: x.face, u: round1(Number(x.u) || 0), v: round1(Number(x.v) || 0), hole, keepout };
   });
   const boardPreset = getPreset(s.enclosure);
   const usedBoards = new Set();
@@ -522,6 +523,13 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
         <NumberField label="X / U" value={selected.u} onCommit={u => onUpdate(selected.id, { u })} />
         <NumberField label="Y / V" value={selected.v} onCommit={v => onUpdate(selected.id, { v })} />
       </div><p className="micro-help">각 면 중앙이 (0, 0)입니다. mm 단위로 조정됩니다.</p></div>
+      {selected.type === 'audioJack' && <div className="inspector-section"><h4><Box size={15} /> 인풋/아웃풋 잭 타입</h4>
+        <select className="cad-select" value={jackVariant(selected).id} onChange={event => onUpdate(selected.id, setJackVariant(selected, event.target.value))}>
+          {Object.values(JACK_VARIANTS).map(variant => <option key={variant.id} value={variant.id}>{variant.label}</option>)}
+        </select>
+        <p className="micro-help">{jackVariant(selected).note}</p>
+        <p className="micro-help">타입 변경 시 관통 홀 Ø와 기본 간섭 범위가 함께 변경됩니다. 개인 실측 후 수정할 수 있습니다.</p>
+      </div>}
       <div className="inspector-section"><h4><CircleDot size={15} /> 가공 지름</h4><div className="two-fields">
         <NumberField label="관통 홀 Ø" value={selected.hole} min={1} max={32} onCommit={hole => onUpdate(selected.id, { hole, keepout: Math.max(hole, selected.keepout) })} />
         <NumberField label="간섭 영역 Ø" value={selected.keepout} min={selected.hole} max={45} onCommit={keepout => onUpdate(selected.id, { keepout })} />
@@ -691,7 +699,7 @@ export default function App() {
   };
   const addPart = (type) => {
     const meta = COMPONENTS[type];
-    const newPart = findOpenSpot({ id: idGen(), type, face: activeFace, u: 0, v: 0, hole: meta.hole, keepout: meta.keepout }, parts, settings);
+    const newPart = findOpenSpot({ id: idGen(), type, ...(type === 'audioJack' ? { jackType: 'box' } : {}), face: activeFace, u: 0, v: 0, hole: meta.hole, keepout: meta.keepout }, parts, settings);
     setParts(list => [...list, newPart]);
     selectPart(newPart.id);
     notify(`${meta.label} 추가됨 · ${FACE_LABELS[activeFace]}`);
