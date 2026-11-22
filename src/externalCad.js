@@ -4,6 +4,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLLoader } from 'three/addons/loaders/VRMLLoader.js';
 import { partWorld } from './layout.js';
+import hooyaCad from './cad/hooyaPj609ba.json' with { type: 'json' };
 
 // These are links to original CAD files, not copies bundled with PEDALFORM.
 // They are specific commercial components, not universal replacements for a category.
@@ -37,7 +38,9 @@ export const CAD_CATALOG = Object.freeze({
     jackType: 'turtle-pj609ba',
     label: '거북형 HOOYA PJ-609BA 6핀 · 실물 KiCad VRML (RPJ-303 아님)',
     name: 'jack_6.35mm_female.wrl',
-    url: 'https://raw.githubusercontent.com/dvhx/perfect-pedal-layout/master/kicad/footprints/wrl/jack_6.35mm_female.wrl',
+    // The original GPL-3.0 VRML and its directly converted triangles are bundled.
+    // The preview no longer depends on a cross-origin request or VRML runtime parsing.
+    url: './cad/hooya/jack_6.35mm_female.wrl',
     axis: '+y', outside: 5,
     note: 'Public pedal PCB model of 6.35mm HOOYA PJ-609BA six-pin stereo jack. GPL-3.0 source. Not the RPJ-303 SKU.',
   }],
@@ -50,6 +53,8 @@ export const CAD_CATALOG = Object.freeze({
     // The actual shaft cylinder is centred at X=0,Y=0, extends to Z=24.1;
     // its 15 mm exposed shaft defines a panel reference plane at Z=9.1.
     mountPoint: [0, 0, 9.1],
+    // Rotate the solder terminals 180° around the panel/shaft normal.
+    panelRotation: 180,
     outside: 15,
     note: 'YGN Effects 공개 CAD: FreeCAD 원본+STEP, Alpha RV16AF-41-15R1 PCB 타입. CC0로 공개된 제품별 3D 모델입니다.',
   }, {
@@ -81,7 +86,10 @@ export const CAD_CATALOG = Object.freeze({
   }],
   led: [],
 });
-const OCCT_BASE = 'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/';
+const OCCT_BASES = [
+  'https://cdn.jsdelivr.net/npm/occt-import-js@0.0.23/dist/',
+  'https://unpkg.com/occt-import-js@0.0.23/dist/',
+];
 let occtPromise = null;
 const urlCache = new Map();
 const axisDirections = {
@@ -93,27 +101,38 @@ const axisDirections = {
   '-z': new THREE.Vector3(0, 0, -1),
 };
 
+async function ensureOcctScript(base) {
+  if (typeof window.occtimportjs === 'function') return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = base + 'occt-import-js.js';
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => {
+      script.remove();
+      reject(new Error('STEP 변환 스크립트 다운로드 실패'));
+    };
+    document.head.appendChild(script);
+  });
+  if (typeof window.occtimportjs !== 'function') {
+    throw new Error('STEP 변환 엔진이 초기화되지 않았습니다.');
+  }
+}
 function getOcct() {
   if (occtPromise) return occtPromise;
-  occtPromise = new Promise((resolve, reject) => {
-    function start() {
-      if (typeof window.occtimportjs !== 'function') {
-        reject(new Error('STEP 변환 엔진을 불러오지 못했습니다.'));
-        return;
+  occtPromise = (async () => {
+    let lastError;
+    for (const base of OCCT_BASES) {
+      try {
+        await ensureOcctScript(base);
+        // The WASM binary must come from the same healthy CDN.
+        return await window.occtimportjs({ locateFile: name => base + name });
+      } catch (error) {
+        lastError = error;
       }
-      window.occtimportjs({ locateFile: name => OCCT_BASE + name }).then(resolve, reject);
     }
-    if (typeof window.occtimportjs === 'function') {
-      start();
-    } else {
-      const script = document.createElement('script');
-      script.src = OCCT_BASE + 'occt-import-js.js';
-      script.async = true;
-      script.onload = start;
-      script.onerror = () => reject(new Error('STEP 변환 엔진 CDN을 불러오지 못했습니다. 인터넷 연결을 확인하세요.'));
-      document.head.appendChild(script);
-    }
-  }).catch(error => {
+    throw new Error('STEP 변환 엔진 다운로드 실패 (대체 CDN도 실패): ' + (lastError?.message || '인터넷 연결을 확인하세요.'));
+  })().catch(error => {
     occtPromise = null;
     throw error;
   });
@@ -184,6 +203,21 @@ export async function importCadBuffer(buffer, filename) {
   }
   throw new Error('지원 형식: STEP/STP, IGES/IGS, BREP, STL, OBJ, GLB, WRL/VRML');
 }
+// Indexed triangles converted without approximation from the original HOOYA WRL.
+function makeBundledHooyaJack() {
+  const root = new THREE.Group();
+  for (const source of hooyaCad.meshes) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(source.positions, 3));
+    geometry.setIndex(source.indices);
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      color: source.color, metalness: 0.22, roughness: 0.48, side: THREE.DoubleSide,
+    });
+    root.add(new THREE.Mesh(geometry, material));
+  }
+  return root;
+}
 function readyAsset(group, id, label, config = {}) {
   group.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(group);
@@ -195,6 +229,7 @@ function readyAsset(group, id, label, config = {}) {
     id, label, group,
     axis: config.axis || '+z',
     outside: config.outside ?? 5,
+    panelRotation: config.panelRotation ?? 0,
     offsetX: 0, offsetY: 0, offsetZ: 0,
     dimensions: [size.x, size.y, size.z],
     url: config.url || null,
@@ -205,6 +240,9 @@ function readyAsset(group, id, label, config = {}) {
 export async function loadCatalogCad(type, id) {
   const item = (CAD_CATALOG[type] || []).find(entry => entry.id === id);
   if (!item) throw new Error('CAD 목록에서 모델을 찾을 수 없습니다.');
+  if (item.id === 'hooya-pj609ba') {
+    return readyAsset(makeBundledHooyaJack(), item.id, item.label, item);
+  }
   if (!urlCache.has(item.url)) {
     const task = (async () => {
       let primaryError = null;
@@ -237,7 +275,11 @@ export function makeMountedCadPart(part, preset, wall, asset) {
   const source = asset.group.clone(true);
   const transform = new THREE.Group();
   transform.add(source);
-  transform.quaternion.setFromUnitVectors(axisDirections[asset.axis] || axisDirections['+z'], new THREE.Vector3(0, 1, 0));
+  const alignToPanel = new THREE.Quaternion().setFromUnitVectors(
+    axisDirections[asset.axis] || axisDirections['+z'], new THREE.Vector3(0, 1, 0));
+  const spinAroundShaft = new THREE.Quaternion().setFromAxisAngle(
+    new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(asset.panelRotation || 0));
+  transform.quaternion.copy(spinAroundShaft.multiply(alignToPanel));
   transform.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(transform);
   // Product CAD has an explicit mounting/shaft origin. Never centre its

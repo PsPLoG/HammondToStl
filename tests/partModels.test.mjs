@@ -6,7 +6,8 @@ import { ENCLOSURES, DEFAULT_PARTS, DEFAULT_SETTINGS } from '../src/presets.js';
 import { partWorld, layoutIssues } from '../src/layout.js';
 import { JACK_VARIANTS, jackVariant, setJackVariant } from '../src/jackVariants.js';
 import { makePartReference } from '../src/partModels.js';
-import { CAD_CATALOG, makeMountedCadPart } from '../src/externalCad.js';
+import { CAD_CATALOG, loadCatalogCad, makeMountedCadPart } from '../src/externalCad.js';
+import hooyaCad from '../src/cad/hooyaPj609ba.json' with { type: 'json' };
 
 const preset = ENCLOSURES['1590B'];
 const wall = DEFAULT_SETTINGS.wall;
@@ -115,4 +116,44 @@ test('the box jack is bundled as the complete original 1.8MB STEP rather than an
   const item=CAD_CATALOG.audioJack.find(p=>p.id==='amphenol-acjs-mhom');
   assert.equal(item.url,'./cad/amphenol/ACJS-MHOM.stp');
   assert.deepEqual(item.mountPoint,[0,0,0]);
+});
+
+test('HOOYA 6-pin jack is bundled with authentic VRML triangles and does not require a network fetch', async () => {
+  const src=readFileSync(new URL('../public/cad/hooya/jack_6.35mm_female.wrl', import.meta.url),'utf8');
+  assert.ok(src.startsWith('#VRML V2.0 utf8'));
+  assert.equal((src.match(/IndexedFaceSet/g)||[]).length, 2);
+  assert.equal(hooyaCad.license, 'GPL-3.0');
+  assert.equal(hooyaCad.meshes.reduce((total,mesh)=>total + mesh.indices.length/3,0),802);
+  const item=CAD_CATALOG.audioJack.find(p=>p.id==='hooya-pj609ba');
+  assert.equal(item.url, './cad/hooya/jack_6.35mm_female.wrl');
+  const cad=await loadCatalogCad('audioJack','hooya-pj609ba');
+  assert.equal(cad.group.children.length,2);
+  assert.ok(cad.group.children.every(mesh=>mesh.isMesh && mesh.geometry.index.count>0));
+  cad.group.traverse(mesh=>{ if(mesh.isMesh){mesh.geometry.dispose();mesh.material.dispose();} });
+});
+
+test('16mm potentiometer is rotated 180 degrees in the panel plane without moving its mounting axis', () => {
+  const spec=CAD_CATALOG.potentiometer.find(p=>p.id==='alpha-rv16af-41-15r1');
+  assert.equal(spec.panelRotation,180);
+  const group=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.BoxGeometry(14,14,30),new THREE.MeshBasicMaterial());
+  body.position.z=8.6;
+  group.add(body);
+  const part={id:'pot-orientation',type:'potentiometer',face:'top',u:8,v:-4};
+  const baseAsset={id:spec.id,group,axis:spec.axis,mountPoint:spec.mountPoint,outside:spec.outside,offsetX:0,offsetY:0,offsetZ:0};
+  const reference=makeMountedCadPart(part,preset,wall,{...baseAsset,panelRotation:0});
+  const rotated=makeMountedCadPart(part,preset,wall,{...baseAsset,panelRotation:spec.panelRotation});
+  reference.updateMatrixWorld(true);
+  rotated.updateMatrixWorld(true);
+  const target=new THREE.Vector3(...partWorld(part,preset,wall,wall/2).position);
+  const mount=new THREE.Vector3(...spec.mountPoint);
+  for(const model of [reference,rotated]){
+    const position=mount.clone().applyMatrix4(model.children[0].matrixWorld);
+    assert.ok(position.distanceTo(target)<1e-5,'rotation must keep shaft aligned with drilled hole');
+  }
+  const sample=mount.clone().add(new THREE.Vector3(5,0,0));
+  const v0=sample.clone().applyMatrix4(reference.children[0].matrixWorld).sub(target);
+  const v180=sample.clone().applyMatrix4(rotated.children[0].matrixWorld).sub(target);
+  assert.ok(v0.clone().add(v180).length()<1e-5,'a 180 degree turn must reverse the terminal direction');
+  body.geometry.dispose(); body.material.dispose();
 });
