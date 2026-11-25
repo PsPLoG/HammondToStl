@@ -80,10 +80,15 @@ export function makeCornerWebGeometry(web, height) {
   web.points.forEach(([px, pz], index) => index === 0 ?
     contour.moveTo(px, -pz) : contour.lineTo(px, -pz));
   contour.closePath();
+  // Avoid a coplanar bottom cap with the shell's Y=0 bottom plane.
+  // The tiny overlap makes BvhCSG less likely to drop negative-X web faces
+  // when triangulating the union, without changing the roof-side extent.
+  const csgOverlap = 0.04;
   const solid = new THREE.ExtrudeGeometry(contour, {
-    depth: height, steps: 1, bevelEnabled: false, curveSegments: 6,
+    depth: height + csgOverlap, steps: 1, bevelEnabled: false, curveSegments: 6,
   });
   solid.rotateX(-Math.PI / 2);
+  solid.translate(0, -csgOverlap, 0);
   return solid;
 }
 
