@@ -21,6 +21,7 @@ import { makePartReference, partBoardCollisions } from './partModels.js';
 import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, checkImportedCadBoards } from './externalCad.js';
 import { JACK_VARIANTS, jackVariant, setJackVariant } from './jackVariants.js';
 import { previewAssemblyTransform } from './previewTransforms.js';
+import { faceScreenPoint, faceModelPoint, faceScreenClearances, lidDatumHeight, lidDatumScreenY } from './faceReference.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -105,8 +106,14 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
   const dragging = useRef(null);
   const [snaps, setSnaps] = useState(null);
   const d = faceSize(settings.enclosure, face);
+  const flipped = !!settings.flipPreview;
+  const preset = getPreset(settings.enclosure);
+  const screen = (u, v) => faceScreenPoint(face, u, v, flipped);
+  const modelCoords = (u, v) => faceModelPoint(face, u, v, flipped);
   const focused = parts.find(p => p.id === selectedId && p.face === face) ?? null;
+  const focusedScreen = focused ? screen(focused.u, focused.v) : null;
   const inFace = parts.filter(p => p.face === face);
+  const datumY = lidDatumScreenY(face, preset, flipped);
   const fasteners = face === 'top' ? getFastenerLayout(getPreset(settings.enclosure), settings) : null;
   const margin = Math.max(15, d.width * 0.18, d.height * 0.08);
   const vb = [-d.width / 2 - margin, -d.height / 2 - margin, d.width + margin * 2, d.height + margin * 2];
@@ -133,7 +140,8 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
     e.preventDefault(); e.stopPropagation();
     onSelect(part.id);
     const p = toLocal(e);
-    dragging.current = { kind: 'part', id: part.id, offU: part.u - p.u, offV: part.v - p.v };
+    const raw = modelCoords(p.u, p.v);
+    dragging.current = { kind: 'part', id: part.id, offU: part.u - raw.u, offV: part.v - raw.v };
     svgRef.current?.setPointerCapture(e.pointerId);
   };
   const startBoardDrag = (e, board) => {
@@ -141,12 +149,14 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
     e.preventDefault(); e.stopPropagation();
     onBoardSelect(board.id);
     const p = toLocal(e);
-    dragging.current = { kind: 'board', id: board.id, offU: board.x - p.u, offV: board.z - p.v };
+    const raw = modelCoords(p.u, p.v);
+    dragging.current = { kind: 'board', id: board.id, offU: board.x - raw.u, offV: board.z - raw.v };
     svgRef.current?.setPointerCapture(e.pointerId);
   };
   const updateDrag = e => {
     if (!dragging.current) return;
-    const p = toLocal(e);
+    const screenPoint = toLocal(e);
+    const p = modelCoords(screenPoint.u, screenPoint.v);
     if (dragging.current.kind === 'board') {
       const board = boards.find(b => b.id === dragging.current.id);
       if (!board) return;
@@ -158,17 +168,17 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
     const target = parts.find(x => x.id === dragging.current.id);
     if (!target) return;
     const moved = moveWithSnap(target, p.u + dragging.current.offU, p.v + dragging.current.offV, parts, settings, e.shiftKey);
-    setSnaps({ u: moved.snappedU, v: moved.snappedV });
+    setSnaps({ u: moved.snappedU === null ? null : screen(moved.snappedU, moved.v).u, v: moved.snappedV === null ? null : screen(moved.u, moved.snappedV).v });
     onMove(dragging.current.id, { u: moved.u, v: moved.v });
   };
   const endDrag = () => { dragging.current = null; setSnaps(null); };
-  const e = focused ? edgeDistances(focused, settings) : null;
+  const e = focused ? faceScreenClearances(focused, d, flipped) : null;
   const neighbor = focused ? nearestNeighbor(focused, parts) : null;
   const textSize = clamp(Math.min(d.width, d.height) * 0.105, 2.9, 4.2);
   const r = focused ? focused.keepout / 2 : 0;
   return (
     <div className="diagram-wrap">
-      <div className="diagram-intro"><MousePointer2 size={14} /> 드래그해 위치 지정 <span className="shortcut">Shift = 스냅 해제 · 방향키 이동</span></div>
+      <div className="diagram-intro"><MousePointer2 size={14} /> 드래그해 위치 지정 <span className="shortcut">{flipped ? '하판 기준 반전 좌표 · ' : ''}Shift = 스냅 해제 · 방향키 이동</span></div>
       <svg ref={svgRef} className="face-svg" viewBox={vb.join(' ')} preserveAspectRatio="xMidYMid meet"
         aria-label={`${FACE_LABELS[face]} 부품 위치 편집기`}
         onPointerMove={updateDrag} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
@@ -183,69 +193,85 @@ function FaceDiagram({ settings, parts, face, selectedId, onSelect, onMove, show
         <g clipPath={`url(#${defId}-clip)`}>
           <rect x={-d.width/2} y={-d.height/2} width={d.width} height={d.height} fill={`url(#${defId}-grid)`} />
           {grid}
-          {face === 'top' && boards.map(board => <g key={board.id} className="pcb-footprint" role="button" aria-label={board.name + ' 위치 이동'}
-            onPointerDown={ev => startBoardDrag(ev, board)}>
-            <rect x={board.x - board.width/2} y={board.z - board.length/2}
-              width={board.width} height={board.length} rx="0.8"
-              fill={selectedBoardId === board.id ? '#66cda0' : '#8dccb1'}
-              fillOpacity={selectedBoardId === board.id ? .35 : .19}
-              stroke={selectedBoardId === board.id ? '#16885b' : '#50a486'}
-              strokeWidth={selectedBoardId === board.id ? .8 : .42}
-              strokeDasharray={selectedBoardId === board.id ? '0' : '2 1.5'} />
-            <text x={board.x} y={board.z} textAnchor="middle" fontSize="3.2" fill="#1e8062" fontWeight="800" pointerEvents="none">{board.name}</text>
-            <text x={board.x} y={board.z + 4} textAnchor="middle" fontSize="2.3" fill="#1e8062" pointerEvents="none">{board.width.toFixed(0)} × {board.length.toFixed(0)} mm</text>
-          </g>)}
-          {fasteners?.centers.map(([x,z], i) => <g key={`post-${i}`} className="fastener-footprint" pointerEvents="none">
-            <circle cx={x} cy={z} r={fasteners.radius} />
-            <circle cx={x} cy={z} r={settings.closure === 'screw' ? FASTENER_SPEC.screwPilot / 2 : (settings.magnetDiameter + settings.magnetTolerance) / 2} className="fastener-bore" />
-          </g>)}
+          {face === 'top' && boards.map(board => {
+            const shown = screen(board.x, board.z);
+            return <g key={board.id} className="pcb-footprint" role="button" aria-label={board.name + ' 위치 이동'}
+              onPointerDown={ev => startBoardDrag(ev, board)}>
+              <rect x={shown.u - board.width/2} y={shown.v - board.length/2}
+                width={board.width} height={board.length} rx="0.8"
+                fill={selectedBoardId === board.id ? '#66cda0' : '#8dccb1'}
+                fillOpacity={selectedBoardId === board.id ? .35 : .19}
+                stroke={selectedBoardId === board.id ? '#16885b' : '#50a486'}
+                strokeWidth={selectedBoardId === board.id ? .8 : .42}
+                strokeDasharray={selectedBoardId === board.id ? '0' : '2 1.5'} />
+              <text x={shown.u} y={shown.v} textAnchor="middle" fontSize="3.2" fill="#1e8062" fontWeight="800" pointerEvents="none">{board.name}</text>
+              <text x={shown.u} y={shown.v + 4} textAnchor="middle" fontSize="2.3" fill="#1e8062" pointerEvents="none">{board.width.toFixed(0)} × {board.length.toFixed(0)} mm</text>
+            </g>;
+          })}
+          {fasteners?.centers.map(([x,z], i) => {
+            const shown = screen(x, z);
+            return <g key={`post-${i}`} className="fastener-footprint" pointerEvents="none">
+              <circle cx={shown.u} cy={shown.v} r={fasteners.radius} />
+              <circle cx={shown.u} cy={shown.v} r={settings.closure === 'screw' ? FASTENER_SPEC.screwPilot / 2 : (settings.magnetDiameter + settings.magnetTolerance) / 2} className="fastener-bore" />
+            </g>;
+          })}
           <line x1={-d.width/2} y1="0" x2={d.width/2} y2="0" className="centerline" />
           <line x1="0" y1={-d.height/2} x2="0" y2={d.height/2} className="centerline" />
           {focused && showGuides && <>
-            {snaps?.u !== null && snaps?.u !== undefined && <line x1={focused.u} y1={-d.height/2} x2={focused.u} y2={d.height/2} className="snapline" />}
-            {snaps?.v !== null && snaps?.v !== undefined && <line x1={-d.width/2} y1={focused.v} x2={d.width/2} y2={focused.v} className="snapline" />}
+            {snaps?.u !== null && <line x1={snaps.u} y1={-d.height/2} x2={snaps.u} y2={d.height/2} className="snapline" />}
+            {snaps?.v !== null && <line x1={-d.width/2} y1={snaps.v} x2={d.width/2} y2={snaps.v} className="snapline" />}
             <g className="measurement">
-              <line x1={-d.width/2} y1={focused.v} x2={focused.u-r} y2={focused.v} />
-              <line x1={focused.u+r} y1={focused.v} x2={d.width/2} y2={focused.v} />
-              <line x1={focused.u} y1={-d.height/2} x2={focused.u} y2={focused.v-r} />
-              <line x1={focused.u} y1={focused.v+r} x2={focused.u} y2={d.height/2} />
-              {e.left > 3 && <text x={(-d.width/2+focused.u-r)/2} y={focused.v-2.1} textAnchor="middle">{e.left}</text>}
-              {e.right > 3 && <text x={(d.width/2+focused.u+r)/2} y={focused.v-2.1} textAnchor="middle">{e.right}</text>}
-              {e.top > 3 && <text x={focused.u + 2.4} y={(-d.height/2+focused.v-r)/2} dominantBaseline="middle">{e.top}</text>}
-              {e.bottom > 3 && <text x={focused.u + 2.4} y={(d.height/2+focused.v+r)/2} dominantBaseline="middle">{e.bottom}</text>}
+              <line x1={-d.width/2} y1={focusedScreen.v} x2={focusedScreen.u-r} y2={focusedScreen.v} />
+              <line x1={focusedScreen.u+r} y1={focusedScreen.v} x2={d.width/2} y2={focusedScreen.v} />
+              <line x1={focusedScreen.u} y1={-d.height/2} x2={focusedScreen.u} y2={focusedScreen.v-r} />
+              <line x1={focusedScreen.u} y1={focusedScreen.v+r} x2={focusedScreen.u} y2={d.height/2} />
+              {e.left > 3 && <text x={(-d.width/2+focusedScreen.u-r)/2} y={focusedScreen.v-2.1} textAnchor="middle">{e.left}</text>}
+              {e.right > 3 && <text x={(d.width/2+focusedScreen.u+r)/2} y={focusedScreen.v-2.1} textAnchor="middle">{e.right}</text>}
+              {e.top > 3 && <text x={focusedScreen.u + 2.4} y={(-d.height/2+focusedScreen.v-r)/2} dominantBaseline="middle">{e.top}</text>}
+              {e.bottom > 3 && <text x={focusedScreen.u + 2.4} y={(d.height/2+focusedScreen.v+r)/2} dominantBaseline="middle">{e.bottom}</text>}
               {neighbor && neighbor.dist > 0.01 && (() => {
-                const dx = (neighbor.part.u - focused.u)/neighbor.dist;
-                const dy = (neighbor.part.v - focused.v)/neighbor.dist;
-                const ax = focused.u + dx*r, ay = focused.v + dy*r;
-                const bx = neighbor.part.u - dx*neighbor.part.keepout/2;
-                const by = neighbor.part.v - dy*neighbor.part.keepout/2;
+                const target = screen(neighbor.part.u, neighbor.part.v);
+                const dx = (target.u - focusedScreen.u)/neighbor.dist;
+                const dy = (target.v - focusedScreen.v)/neighbor.dist;
+                const ax = focusedScreen.u + dx*r, ay = focusedScreen.v + dy*r;
+                const bx = target.u - dx*neighbor.part.keepout/2;
+                const by = target.v - dy*neighbor.part.keepout/2;
                 return <>
                   <line x1={ax} y1={ay} x2={bx} y2={by} className={neighbor.gap < settings.partGap ? 'measure-danger' : 'neighbor-line'} />
                   <text x={(ax+bx)/2} y={(ay+by)/2-2.6} textAnchor="middle" className={neighbor.gap < settings.partGap ? 'measure-danger-text' : 'neighbor-text'}>{neighbor.gap} mm</text>
                 </>;
               })()}
             </g>
+            {datumY !== null && <g className="lid-height-guide" pointerEvents="none">
+              <line x1={focusedScreen.u} y1={focusedScreen.v} x2={focusedScreen.u} y2={datumY} />
+              <text x={focusedScreen.u + 2} y={(focusedScreen.v + datumY)/2 - 1.3}>{lidDatumHeight(focused, preset).toFixed(1)} mm</text>
+            </g>}
           </>}
           {inFace.map(p => {
             const meta = COMPONENTS[p.type];
             const active = focused?.id === p.id;
             const invalid = !!issueForPart(p, parts, settings);
+            const shown = screen(p.u, p.v);
             return <g key={p.id} onPointerDown={ev => startDrag(ev, p)} role="button" aria-label={`${meta.label} 선택 및 드래그`} className={`component-marker ${active ? 'selected' : ''}`}>
-              <circle cx={p.u} cy={p.v} r={p.keepout/2} fill={invalid ? '#ffe0df' : meta.color} fillOpacity={active ? 0.28 : 0.16} stroke={invalid ? '#de6660' : active ? '#1d8077' : '#849e9e'} strokeWidth={active ? 0.65 : 0.3} strokeDasharray={active ? '0' : '1.4 1.1'} />
-              <circle cx={p.u} cy={p.v} r={p.hole/2} fill={invalid ? '#8e3e3e' : '#273b43'} stroke={active ? '#a8ef90' : '#fff'} strokeWidth={active ? 0.75 : 0.45} />
-              <circle cx={p.u} cy={p.v} r={Math.max(5, p.keepout/2)} fill="transparent" />
-              <text x={p.u} y={p.v+1.1} textAnchor="middle" fill="white" fontWeight="800" fontSize={Math.min(3.2, p.hole*0.43)} pointerEvents="none">{meta.short === 'FOOT' ? 'FS' : meta.short === 'TOGGLE' ? 'T' : meta.short.slice(0,2)}</text>
-              {active && <circle cx={p.u} cy={p.v} r={p.keepout/2 + 1.65} fill="none" stroke="#288b7e" strokeWidth=".35" strokeDasharray="1.1 1.2" pointerEvents="none" />}
+              <circle cx={shown.u} cy={shown.v} r={p.keepout/2} fill={invalid ? '#ffe0df' : meta.color} fillOpacity={active ? 0.28 : 0.16} stroke={invalid ? '#de6660' : active ? '#1d8077' : '#849e9e'} strokeWidth={active ? 0.65 : 0.3} strokeDasharray={active ? '0' : '1.4 1.1'} />
+              <circle cx={shown.u} cy={shown.v} r={p.hole/2} fill={invalid ? '#8e3e3e' : '#273b43'} stroke={active ? '#a8ef90' : '#fff'} strokeWidth={active ? 0.75 : 0.45} />
+              <circle cx={shown.u} cy={shown.v} r={Math.max(5, p.keepout/2)} fill="transparent" />
+              <text x={shown.u} y={shown.v+1.1} textAnchor="middle" fill="white" fontWeight="800" fontSize={Math.min(3.2, p.hole*0.43)} pointerEvents="none">{meta.short === 'FOOT' ? 'FS' : meta.short === 'TOGGLE' ? 'T' : meta.short.slice(0,2)}</text>
+              {active && <circle cx={shown.u} cy={shown.v} r={p.keepout/2 + 1.65} fill="none" stroke="#288b7e" strokeWidth=".35" strokeDasharray="1.1 1.2" pointerEvents="none" />}
             </g>;
           })}
         </g>
+        {datumY !== null && <g className="lid-datum" pointerEvents="none">
+          <line x1={-d.width/2} y1={datumY} x2={d.width/2} y2={datumY} />
+          <text x={-d.width/2 + 2} y={flipped ? datumY - 2 : datumY + 4}>하판 접합 기준 Y=0</text>
+        </g>}
         <g className="dimension-text" fontSize={textSize}>
           <text x="0" y={-d.height/2-6.5} textAnchor="middle">{mm(d.width)}</text>
           <text x={-d.width/2-8} y="0" textAnchor="middle" transform={`rotate(-90 ${-d.width/2-8} 0)`}>{mm(d.height)}</text>
           <text x={d.width/2 + 2} y={d.height/2 + 7} textAnchor="end" fontSize={textSize*.82}>1 unit = 1 mm</text>
         </g>
       </svg>
-      <div className="diagram-footer"><span><i className="diagram-dot filled" /> 절삭 홀</span><span><i className="diagram-dot outlined" /> 부품 간섭 영역</span><span><i className="diagram-line" /> 실시간 치수</span>{face === 'top' && <><span className="fastener-legend">◌ 하판 체결부 투영</span><span className="pcb-legend">▧ PCB 내부 투영</span></>}</div>
+      <div className="diagram-footer"><span><i className="diagram-dot filled" /> 절삭 홀</span><span>하판 기준 {flipped ? '반전' : '원위치'} · 홀/가이드 동기화</span><span><i className="diagram-dot outlined" /> 부품 간섭 영역</span><span><i className="diagram-line" /> 실시간 치수</span>{face === 'top' && <><span className="fastener-legend">◌ 하판 체결부 투영</span><span className="pcb-legend">▧ PCB 내부 투영</span></>}</div>
     </div>
   );
 }
@@ -285,6 +311,9 @@ function VisibleModel({ model, settings, preset, parts, selectedId, onSelect, on
     const n = e.face?.normal;
     if (!n) return;
     const transformed = n.clone().transformDirection(e.object.matrixWorld);
+    // Restore the original CAD face normal when the parent preview is flipped;
+    // otherwise front/back/left/right become misidentified on click.
+    if (settings.flipPreview) transformed.applyAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI);
     let face = 'top';
     if (Math.abs(transformed.y) > Math.max(Math.abs(transformed.x), Math.abs(transformed.z))) {
       face = transformed.y > 0 ? 'top' : 'top';
@@ -520,7 +549,9 @@ function TopMenu({ settings, setSettings, face, onAdd, boards, selectedBoardId, 
 }
 
 function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete, issueCount, cadAssets, onCatalogCad, onLocalCad, onRemoveCad, onAdjustCad, cadLoading, cadErrors }) {
-  const d = selected ? edgeDistances(selected, settings) : null;
+  const selectedPreset = getPreset(settings.enclosure);
+  const shown = selected ? faceScreenPoint(selected.face, selected.u, selected.v, !!settings.flipPreview) : null;
+  const d = selected ? faceScreenClearances(selected, faceSize(settings.enclosure, selected.face), !!settings.flipPreview) : null;
   const next = selected ? nearestNeighbor(selected, parts) : null;
   const issue = selected ? issueForPart(selected, parts, settings) : null;
   return <aside className="inspector">
@@ -528,9 +559,13 @@ function Inspector({ selected, parts, settings, onUpdate, onDuplicate, onDelete,
     {!selected ? <div className="empty-inspector"><div className="empty-inspector-icon"><MousePointer2 size={25} /></div><h3>부품을 선택하세요</h3><p>2D 도면에서 부품을 클릭하면<br />좌표, 가공 치수, 벽 간격이 표시됩니다.</p><span>SELECT AN ELEMENT</span></div> : <div className="inspector-body">
       <div className="selected-meta"><div className="inspector-symbol" style={{ '--accent': COMPONENTS[selected.type].color }}>{COMPONENTS[selected.type].glyph}</div><div><span>SELECTED COMPONENT</span><h3>{COMPONENTS[selected.type].label}</h3><small>{FACE_LABELS[selected.face]} · {COMPONENTS[selected.type].short}</small></div></div>
       <div className="inspector-section"><h4><Crosshair size={15} /> 위치 <span>CENTER ORIGIN</span></h4><div className="two-fields">
-        <NumberField label="X / U" value={selected.u} onCommit={u => onUpdate(selected.id, { u })} />
-        <NumberField label="Y / V" value={selected.v} onCommit={v => onUpdate(selected.id, { v })} />
-      </div><p className="micro-help">각 면 중앙이 (0, 0)입니다. mm 단위로 조정됩니다.</p></div>
+        <NumberField label="화면 X / U" value={shown.u} onCommit={u => onUpdate(selected.id, { u: faceModelPoint(selected.face, u, shown.v, !!settings.flipPreview).u })} />
+        <NumberField label="화면 Y / V" value={shown.v} onCommit={v => onUpdate(selected.id, { v: faceModelPoint(selected.face, shown.u, v, !!settings.flipPreview).v })} />
+      </div>
+      {selected.face !== 'top' && <div className="two-fields">
+        <NumberField label="하판 접합면 기준 홀 중심 높이" value={lidDatumHeight(selected, selectedPreset)} min={0} max={selectedPreset.h} onCommit={height => onUpdate(selected.id, { v: round1(selectedPreset.h / 2 - height) })} />
+      </div>}
+      <p className="micro-help">하판이 본체와 맞닿는 면을 Y=0 mm로 사용합니다. 반전 시 홀·간섭 원·가이드라인·편집 좌표가 함께 반전되며 STL 가공 위치는 유지됩니다.</p></div>
       {selected.type === 'audioJack' && <div className="inspector-section"><h4><Box size={15} /> 인풋/아웃풋 잭 타입</h4>
         <select className="cad-select" value={jackVariant(selected).id} onChange={event => { onUpdate(selected.id, setJackVariant(selected, event.target.value)); onRemoveCad(selected.id); }}>
           {Object.values(JACK_VARIANTS).map(variant => <option key={variant.id} value={variant.id}>{variant.label}</option>)}
@@ -874,13 +909,15 @@ export default function App() {
         const board = boards.find(b => b.id === selectedBoardId);
         if (!board) return;
         const delta = e.shiftKey ? 5 : 0.5;
-        dragBoard(board.id, { x: board.x + direction[0]*delta, z: board.z + direction[1]*delta });
+        const moved = faceModelPoint('top', direction[0]*delta, direction[1]*delta, !!settings.flipPreview);
+        dragBoard(board.id, { x: board.x + moved.u, z: board.z + moved.v });
         return;
       }
       const part = parts.find(p => p.id === selectedId);
       if (!part) return;
       const delta = e.shiftKey ? 5 : 0.5;
-      const moved = moveWithSnap(part, part.u + direction[0]*delta, part.v + direction[1]*delta, parts, settings, true);
+      const dir = faceModelPoint(part.face, direction[0]*delta, direction[1]*delta, !!settings.flipPreview);
+      const moved = moveWithSnap(part, part.u + dir.u, part.v + dir.v, parts, settings, true);
       updatePart(selectedId, { u:moved.u, v:moved.v });
     };
     window.addEventListener('keydown', onKey);
@@ -891,7 +928,7 @@ export default function App() {
     <header className="topbar">
       <div className="topbar-main">
       <div className="brand"><div className="brand-logo"><Box size={21} strokeWidth={2.2} /></div><div className="brand-word">PEDAL<span>FORM</span><small>ENCLOSURE STUDIO</small></div></div>
-      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">v0.4.4</span></div>
+      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">v0.4.5</span></div>
       <div className="header-actions">
         <input type="file" ref={fileRef} accept=".json,application/json" onChange={loadJson} hidden />
         <button className="top-btn subtle" onClick={reset} title="초기화"><RotateCcw size={16} /> <span>초기화</span></button>
@@ -913,7 +950,7 @@ export default function App() {
         <div className="workbench-title"><div><div className="section-eyebrow">WORKSPACE / DESIGNER</div><h1>이펙터 케이스 설계<span className="heading-mark">.</span></h1><p>부품·PCB 배치, 노브 프리셋, 홀 가공, STL까지 한 화면에서.</p></div><div className="workbench-stat"><span><Layers3 size={15} /> 5 SURFACES</span><b>{parts.length.toString().padStart(2, '0')} <small>COMPONENTS</small></b></div></div>
         <div className="design-panels">
           <section className="drawing-panel">
-            <div className="panel-top"><div><span className="panel-index">A / 2D EDITOR</span><h2>홀 위치 편집</h2></div><div className="panel-top-icon"><BoxSelect size={18} /></div></div>
+            <div className="panel-top"><div><span className="panel-index">A / 2D EDITOR</span><h2>홀 위치 편집 · 하판 기준</h2></div><div className="panel-top-icon"><BoxSelect size={18} /></div></div>
             <div className="face-tabs">
               {FACES.map(f => <button key={f.id} onClick={() => onFace(f.id)} className={activeFace === f.id ? 'active' : ''}><span>{f.number}</span>{f.label}<b className={issues.some(i => parts.some(p => p.id === i.id && p.face === f.id)) ? 'has-issue' : ''}>{parts.filter(p => p.face === f.id).length}</b></button>)}
             </div>
@@ -941,6 +978,6 @@ export default function App() {
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
         <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} onAdjustCad={onAdjustCad} cadLoading={cadLoading} cadErrors={cadErrors} />}
     </div>
-    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.4 / JACK CAD + POT ROTATION</span></footer>
+    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.5 / JACK CAD + POT ROTATION</span></footer>
   </div>;
 }
