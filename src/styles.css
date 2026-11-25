@@ -510,3 +510,10 @@ button { -webkit-tap-highlight-color: transparent; }
 .cad-legacy-hint button:hover, .cad-load-error button:hover { border-color: #316b6b; }
 .cad-load-error { padding: 8px 10px; margin: 8px 0; background: #fff5f3; border: 1px solid #ead1cd; border-radius: 7px; }
 .cad-load-error .micro-help { color: #953c36; }
+
+/* Bottom-plate datum overlays share the same projected frame as drill
+   markers, snap lines, image/outline guides and PCB footprints. */
+.lid-datum { fill: #156e6a; font-size: 2.8px; font-weight: 800; }
+.lid-datum line { stroke: #128d87; stroke-width: .95; }
+.lid-height-guide line { stroke: #119b89; stroke-width: .55; stroke-dasharray: 1.6 1; }
+.lid-height-guide text { fill: #176c65; font-size: 2.6px; font-weight: 750; }
