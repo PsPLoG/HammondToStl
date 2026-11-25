@@ -48,6 +48,7 @@ export const DEFAULT_SETTINGS = {
   showLid: true,
   showDimensions: true,
   exploded: true,
+  flipPreview: false,
   xray: false,
 };
 

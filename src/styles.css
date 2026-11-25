@@ -132,7 +132,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .diagram-line { display:inline-block; width:12px; border-bottom:1px dashed #39988b; }
 .panel-footnote { min-height:35px; background:#fff; padding:10px 15px; color:#8ca09c; display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:9px; white-space:nowrap; border-top:1px solid #e7efed; }
 .panel-footnote span:last-child { color:#668d85; }
-.model-toolbar { min-height:44px; display:flex; align-items:center; gap:5px; padding:7px 12px; border-bottom:1px solid #e8eeee; }
+.model-toolbar { min-height:44px; display:flex; flex-wrap:wrap; align-items:center; gap:5px; padding:7px 12px; border-bottom:1px solid #e8eeee; }
 .model-toolbar button { display:flex; align-items:center; gap:5px; border:1px solid #dbe6e2; border-radius:6px; background:#fff; padding:7px 9px; font-size:10px; font-weight:700; color:#7e9690; }
 .model-toolbar button.active { background:#eaf5ef; border-color:#b7d6c3; color:#237e69; }
 .model-toolbar-hint { margin-left:auto; font:500 9px var(--mono); color:#a2b3af; }
