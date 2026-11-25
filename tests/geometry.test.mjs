@@ -32,7 +32,7 @@ test('CSG output includes solid full-height joins in all four corners', () => {
           0, preset.h + 5,
         );
         const intersections = ray.intersectObject(mesh, false);
-        assert.ok(intersections.length >= 2, preset.code + ' has an open or missing filled corner');
+        assert.ok(intersections.length >= 2, preset.code + ' has an open or missing filled corner at ' + px + ',' + pz + ' (corner ' + x + ',' + z + ', hits=' + intersections.length + '; heights=' + intersections.map(hit => hit.point.y.toFixed(3)).join(',') + ')');
         const lowest = Math.min(...intersections.map(hit => hit.point.y));
         assert.ok(lowest < 0.08, preset.code + ' corner at ' + px + ',' + pz +
           ' is not filled to Y=0 (lowest mesh crossing at ' + lowest + ')');

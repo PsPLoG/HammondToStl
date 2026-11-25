@@ -80,10 +80,15 @@ export function makeCornerWebGeometry(web, height) {
   web.points.forEach(([px, pz], index) => index === 0 ?
     contour.moveTo(px, -pz) : contour.lineTo(px, -pz));
   contour.closePath();
+  // Avoid a coplanar bottom cap with the shell's Y=0 bottom plane.
+  // The tiny overlap makes BvhCSG less likely to drop negative-X web faces
+  // when triangulating the union, without changing the roof-side extent.
+  const csgOverlap = 0.04;
   const solid = new THREE.ExtrudeGeometry(contour, {
-    depth: height, steps: 1, bevelEnabled: false, curveSegments: 6,
+    depth: height + csgOverlap, steps: 1, bevelEnabled: false, curveSegments: 6,
   });
   solid.rotateX(-Math.PI / 2);
+  solid.translate(0, -csgOverlap, 0);
   return solid;
 }
 
@@ -98,13 +103,16 @@ export function buildShell(preset, settings, parts = []) {
   const posts = mounting.centers;
   const isScrew = settings.closure === 'screw';
   const height = mounting.bossHeight;
+  // Union cylindrical posts first. Each corner web then overlaps BOTH the
+  // established post and the existing outer wall, avoiding disconnected or
+  // near-coplanar CSG islands on rounded enclosures.
+  for (const [x, z] of posts) {
+    shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
+  }
   // Same solid web geometry is also used by the optional visual overlay.
   // Actual STL geometry receives these full-volume pieces through CSG union.
   for (const web of getCornerWebs(preset, settings)) {
     shell.apply(makeCornerWebGeometry(web, height), ADDITION);
-  }
-  for (const [x, z] of posts) {
-    shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
   }
   for (const [x, z] of posts) {
     if (isScrew) {
