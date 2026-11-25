@@ -98,13 +98,16 @@ export function buildShell(preset, settings, parts = []) {
   const posts = mounting.centers;
   const isScrew = settings.closure === 'screw';
   const height = mounting.bossHeight;
+  // Union cylindrical posts first. Each corner web then overlaps BOTH the
+  // established post and the existing outer wall, avoiding disconnected or
+  // near-coplanar CSG islands on rounded enclosures.
+  for (const [x, z] of posts) {
+    shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
+  }
   // Same solid web geometry is also used by the optional visual overlay.
   // Actual STL geometry receives these full-volume pieces through CSG union.
   for (const web of getCornerWebs(preset, settings)) {
     shell.apply(makeCornerWebGeometry(web, height), ADDITION);
-  }
-  for (const [x, z] of posts) {
-    shell.apply(new THREE.CylinderGeometry(mounting.radius, mounting.radius, height, 40), ADDITION, [x, height / 2, z]);
   }
   for (const [x, z] of posts) {
     if (isScrew) {
