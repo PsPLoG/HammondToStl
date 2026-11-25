@@ -20,6 +20,7 @@ import { applyKnobPreset } from './knobPresets.js';
 import { makePartReference, partBoardCollisions } from './partModels.js';
 import { CAD_CATALOG, loadCatalogCad, loadLocalCad, makeMountedCadPart, checkImportedCadBoards } from './externalCad.js';
 import { JACK_VARIANTS, jackVariant, setJackVariant } from './jackVariants.js';
+import { previewAssemblyTransform } from './previewTransforms.js';
 import './styles.css';
 
 const STORAGE_KEY = 'pedalform_project_v1';
@@ -42,6 +43,7 @@ function sanitizeProject(json) {
   const s = { ...DEFAULT_SETTINGS, ...(json.settings ?? {}) };
   if (!ENCLOSURES[s.enclosure]) s.enclosure = '1590B';
   if (!['screw', 'magnet'].includes(s.closure)) s.closure = 'screw';
+  s.flipPreview = s.flipPreview === true;
   s.wall = clamp(Number(s.wall) || DEFAULT_SETTINGS.wall, 2, 5);
   s.lidThickness = clamp(Number(s.lidThickness) || DEFAULT_SETTINGS.lidThickness, 2.6, 6);
   s.edgeClearance = clamp(Number(s.edgeClearance) || DEFAULT_SETTINGS.edgeClearance, 1.5, 10);
@@ -334,6 +336,9 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
   const [wire, setWire] = useState(false);
   const [showCornerFill, setShowCornerFill] = useState(false);
   const [showParts, setShowParts] = useState(true);
+  // Preview-only: rotate the whole assembly about its body midpoint.
+  // The original CAD and STL/3MF export coordinate systems remain unchanged.
+  const flipTransform = previewAssemblyTransform(preset.h, !!settings.flipPreview);
   return <div className="preview-content">
     <div className="preview-floating"><span className="live-dot" />{computing ? 'UPDATING MESH' : model?.error ? 'MESH ERROR' : 'LIVE MODEL'}</div>
     <div className="preview-actions">
@@ -350,11 +355,13 @@ function ModelPreview({ model, settings, preset, parts, selectedId, onSelect, on
         <ambientLight intensity={1.55} />
         <directionalLight position={[110, 170, 90]} intensity={2.4} castShadow shadow-mapSize={[1024, 1024]} />
         <directionalLight position={[-100, 50, -80]} intensity={0.9} />
-        <group>
-          <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} showParts={showParts} cadAssets={cadAssets} />
-          {wire && model?.shell && <mesh geometry={model.shell.geometry}>
-            <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
-          </mesh>}
+        <group position={flipTransform.pivot} rotation={flipTransform.rotation}>
+          <group position={flipTransform.origin}>
+            <VisibleModel model={model} preset={preset} settings={settings} parts={parts} selectedId={selectedId} onSelect={onSelect} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={onBoardSelect} showCornerFill={showCornerFill} showParts={showParts} cadAssets={cadAssets} />
+            {wire && model?.shell && <mesh geometry={model.shell.geometry}>
+              <meshBasicMaterial color="#487779" wireframe transparent opacity={0.22} depthTest={false} />
+            </mesh>}
+          </group>
         </group>
         <gridHelper args={[Math.max(200, preset.l * 2), 20, '#9db4b3', '#cedbd9']} position={[0, -21, 0]} />
         <OrbitControls makeDefault target={[0, preset.h / 2, 0]} enableDamping minDistance={50} maxDistance={470} maxPolarAngle={Math.PI * 0.88} />
@@ -884,7 +891,7 @@ export default function App() {
     <header className="topbar">
       <div className="topbar-main">
       <div className="brand"><div className="brand-logo"><Box size={21} strokeWidth={2.2} /></div><div className="brand-word">PEDAL<span>FORM</span><small>ENCLOSURE STUDIO</small></div></div>
-      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">v0.4.3</span></div>
+      <div className="project-title"><span className="project-status-dot" /><span>UNTITLED ENCLOSURE</span><span className="project-separator">/</span><b>{settings.enclosure}</b><span className="beta-badge">v0.4.4</span></div>
       <div className="header-actions">
         <input type="file" ref={fileRef} accept=".json,application/json" onChange={loadJson} hidden />
         <button className="top-btn subtle" onClick={reset} title="초기화"><RotateCcw size={16} /> <span>초기화</span></button>
@@ -918,7 +925,7 @@ export default function App() {
           </section>
           <section className="model-panel">
             <div className="panel-top"><div><span className="panel-index">B / 3D PREVIEW</span><h2>실시간 3D 모델</h2></div><div className="panel-top-icon"><Box size={18} /></div></div>
-            <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><button onClick={() => setSettings(s => ({ ...s, xray: !s.xray }))} className={settings.xray ? 'active' : ''}><Eye size={15} /> 내부 보기</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
+            <div className="model-toolbar"><button onClick={() => setSettings(s => ({ ...s, showLid: !s.showLid }))} className={settings.showLid ? 'active' : ''}>{settings.showLid ? <Eye size={15} /> : <EyeOff size={15} />} 하판</button><button disabled={!settings.showLid} onClick={() => setSettings(s => ({ ...s, exploded: !s.exploded }))} className={settings.exploded ? 'active' : ''}><Layers3 size={15} /> 분해도</button><button onClick={() => setSettings(s => ({ ...s, xray: !s.xray }))} className={settings.xray ? 'active' : ''}><Eye size={15} /> 내부 보기</button><button type="button" title="케이스 전체를 180° 뒤집어 하판이 위로 오도록 표시합니다 (STL/3MF에는 영향 없음)" aria-pressed={!!settings.flipPreview} onClick={() => setSettings(s => ({ ...s, flipPreview: !s.flipPreview }))} className={settings.flipPreview ? 'active' : ''}><RotateCcw size={15} /> {settings.flipPreview ? '원위치' : '하판 위로'}</button><div className="model-toolbar-hint">ORBIT / ZOOM</div></div>
             <ModelPreview model={model} computing={computing || model?.key !== modelKey} settings={settings} preset={preset} parts={parts} selectedId={selectedId} onSelect={selectPart} onFace={onFace} boards={boards} selectedBoardId={selectedBoardId} onBoardSelect={selectBoard} cadAssets={cadAssets}  onToggleXray={() => setSettings(previous => ({...previous, xray: !previous.xray}))} />
             <div className="panel-footnote"><span>CSG / 실제 관통 홀 반영</span><span className="mono">MM · STL READY</span></div>
           </section>
@@ -934,6 +941,6 @@ export default function App() {
       {selectedBoard ? <PCBInspector board={selectedBoard} boards={boards} settings={settings} preset={preset} onUpdate={updateBoard} onDelete={removeBoard} issueCount={issues.length} /> :
         <Inspector selected={selected} parts={parts} settings={settings} onUpdate={updatePart} onDuplicate={duplicatePart} onDelete={deletePart} issueCount={issues.length}  cadAssets={cadAssets} onCatalogCad={onCatalogCad} onLocalCad={onLocalCad} onRemoveCad={onRemoveCad} onAdjustCad={onAdjustCad} cadLoading={cadLoading} cadErrors={cadErrors} />}
     </div>
-    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.3 / JACK CAD + POT ROTATION</span></footer>
+    <footer className="footer"><span>© PEDALFORM · 3D PRINTABLE ENCLOSURE DESIGN</span><span>LOCAL-FIRST <b>·</b> MILLIMETERS <b>·</b> BROWSER-BASED</span><span>V 0.4.4 / JACK CAD + POT ROTATION</span></footer>
   </div>;
 }

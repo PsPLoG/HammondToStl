@@ -136,8 +136,10 @@ test('16mm potentiometer is rotated 180 degrees in the panel plane without movin
   const spec=CAD_CATALOG.potentiometer.find(p=>p.id==='alpha-rv16af-41-15r1');
   assert.equal(spec.panelRotation,180);
   const group=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.BoxGeometry(14,14,30),new THREE.MeshBasicMaterial());
-  body.position.z=8.6;
+  // Match the verified RV16 CAD maximum Z = 24.1 mm (15 mm outside the mounting point at Z = 9.1).
+  // A shorter dummy mesh shifts the CAD's intentional outside correction and makes this test invalid.
+  const body=new THREE.Mesh(new THREE.BoxGeometry(14,14,30.6),new THREE.MeshBasicMaterial());
+  body.position.z=8.8;
   group.add(body);
   const part={id:'pot-orientation',type:'potentiometer',face:'top',u:8,v:-4};
   const baseAsset={id:spec.id,group,axis:spec.axis,mountPoint:spec.mountPoint,outside:spec.outside,offsetX:0,offsetY:0,offsetZ:0};
